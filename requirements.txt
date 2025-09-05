@@ -1,0 +1,8 @@
+rclpy>=2.3.0
+numpy>=1.24.0
+sounddevice>=0.4.8
+webrtcvad>=2.0.10
+whisper>=20230314
+scipy>=1.10.0
+openai>=1.32.0
+google-cloud-texttospeech>=2.16.0
