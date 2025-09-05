@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>simple_hri</name>
+  <version>0.0.1</version>
+  <description>Simple speech-to-text and text-to-speech services for HRI.</description>
+
+  <maintainer email="rodrigo.perez@urjc.es">ROI</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+  <export>
+  <build_type>ament_python</build_type>
+  </export>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <exec_depend>hni_interfaces</exec_depend>
+  <exec_depend>sound_play</exec_depend>
+  <exec_depend>sound_play_msgs</exec_depend>
+</package>
