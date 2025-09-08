@@ -23,6 +23,7 @@ import webrtcvad
 from rclpy.node import Node
 from std_srvs.srv import SetBool
 from std_msgs.msg import String
+import openai
 import time
 
 # Parámetros
