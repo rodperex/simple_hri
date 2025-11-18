@@ -1,4 +1,5 @@
 from setuptools import setup
+from glob import glob
 
 package_name = 'simple_hri'
 
@@ -11,6 +12,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', ['launch/simple_hri.launch.py']),
+        ('share/' + package_name + '/params', glob('params/*')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

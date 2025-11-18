@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+from ament_index_python import get_package_share_directory
 import rclpy
 import wave
 import numpy as np
@@ -23,6 +24,14 @@ SILENCE_DURATION = 1.5
 class ExtractService(Node):
     def __init__(self):
         super().__init__("extract_service_node")
+
+        package_name = 'simple_hri'
+        package_share_directory = get_package_share_directory(package_name)
+        
+        self.declare_parameter("prompt_file", "basic_prompt_es.txt")
+
+        self.prompt_file = self.base_frame = self.get_parameter("prompt_file").get_parameter_value().string_value
+        self.prompt_file = os.path.join(package_share_directory + "/params/", self.prompt_file)
 
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
@@ -47,14 +56,20 @@ class ExtractService(Node):
     def extract_interest_from_text(self, interest: str, text: str) -> str:
         """Usa un modelo de lenguaje para extraer lo relevante según el 'interest'."""
 
-        prompt_system = (
-            "Eres un extractor de información.\n\n"
-            "Recibes una categoría de interés ('interest') y una frase del usuario.\n"
-            "Tu tarea es extraer SOLO la palabra o frase más relevante relacionada con "
-            "esa categoría.\n"
-            "No añadas explicaciones ni texto extra.\n"
-            "Si no hay nada relevante devuelve exactamente: NINGUNO."
-        )
+        # prompt_system = (
+        #     "Eres un extractor de información.\n\n"
+        #     "Recibes una categoría de interés ('interest') y una frase del usuario.\n"
+        #     "Tu tarea es extraer SOLO la palabra o frase más relevante relacionada con "
+        #     "esa categoría.\n"
+        #     "Si hay mśas de una palabra o frase relevante, devuelve todas separadas por el caracter ';'.\n"
+        #     "No añadas explicaciones ni texto extra.\n"
+        #     "Si no hay nada relevante devuelve exactamente: NINGUNO."
+        # )
+
+        
+        with open(self.prompt_file, 'r') as f:
+            prompt_system = f.read()
+    
 
         prompt_user = f"""interest: "{interest}"
                         texto: "{text}"
@@ -96,9 +111,7 @@ class ExtractService(Node):
 
         except Exception as e:
             self.get_logger().error(f'❌ Error en el reconocimiento o extracción: {e}')
-            sResponse.result = "ERROR"
-            sResponse.message = str(e)
-
+            sResponse.result = "ERROR:" + str(e)
         return sResponse
 
 

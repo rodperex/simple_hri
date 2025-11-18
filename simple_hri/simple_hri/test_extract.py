@@ -59,7 +59,8 @@ class TestExtract(Node):
         extract_req = Extract.Request()
         transcribed_text = "Quiero una cocacola, una cerveza y una pizza margarita."
         extract_req.text = transcribed_text
-        extract_req.interest = "bebida"  # Ejemplo de interés
+        # extract_req.interes = "bebida"
+        extract_req.interest = "plato principal"  # Ejemplo de interés
 
         extract_future = self.extract_client.call_async(extract_req)
         rclpy.spin_until_future_complete(self, extract_future)

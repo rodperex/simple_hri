@@ -18,6 +18,12 @@ def generate_launch_description():
             name='tts_service_node',
             output='screen'
         ),
+        Node(
+            package='simple_hri',
+            executable='extract_service',
+            name='extract_service_node',
+            output='screen'
+        ),
         # IncludeLaunchDescription(
         #     AnyLaunchDescriptionSource([
         #         FindPackageShare('sound_play'), '/launch/soundplay_node.launch.xml'
