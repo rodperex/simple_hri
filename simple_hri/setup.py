@@ -24,7 +24,9 @@ setup(
             'tts_service = simple_hri.tts_service:main',
             'stt_service = simple_hri.stt_service:main',
             'stt_service_local = simple_hri.stt_service_local:main',
+            'extract_service = simple_hri.extract_service:main',
             'test_services = simple_hri.test_services:main',
+            'test_extract = simple_hri.test_extract:main', 
         ],
     },
 )
