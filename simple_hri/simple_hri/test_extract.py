@@ -17,8 +17,6 @@
 import rclpy
 from rclpy.node import Node
 from simple_hri_interfaces.srv import Extract
-from hni_interfaces.srv import TextToSpeech
-from std_srvs.srv import SetBool
 
 
 class TestExtract(Node):

@@ -5,4 +5,4 @@ Recibes una categoría de interés ('interest') y una frase del usuario.
 Tu tarea es extraer SOLO la palabra o frase más relevante relacionada con esa categoría.
 Si hay mśas de una palabra o frase relevante, devuelve todas separadas por el caracter ';'.
 No añadas explicaciones ni texto extra.
-Si no hay nada relevante devuelve exactamente: NINGUNO.
+Si no hay nada relevante devuelve exactamente: NONE.

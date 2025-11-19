@@ -63,7 +63,7 @@ class ExtractService(Node):
         #     "esa categoría.\n"
         #     "Si hay mśas de una palabra o frase relevante, devuelve todas separadas por el caracter ';'.\n"
         #     "No añadas explicaciones ni texto extra.\n"
-        #     "Si no hay nada relevante devuelve exactamente: NINGUNO."
+        #     "Si no hay nada relevante devuelve exactamente: NONE."
         # )
 
         
