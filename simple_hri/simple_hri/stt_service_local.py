@@ -1,18 +1,7 @@
 #!/usr/bin/env python3
 
 # Copyright 2025 Rodrigo Pérez-Rodríguez
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Licensed under the Apache License, Version 2.0
 
 import rclpy
 import numpy as np
@@ -20,103 +9,157 @@ import sounddevice as sd
 import webrtcvad
 import time
 import whisper
+import collections
 from rclpy.node import Node
 from std_srvs.srv import SetBool
 from std_msgs.msg import String
 from scipy.io.wavfile import write
 
-# Parámetros
+# --- Configuración ---
 SAMPLE_RATE = 16000
 FRAME_DURATION = 30  # ms
 CHANNELS = 1
-VAD_SENSITIVITY = 0  # 0=permisivo, 3=estricto
-SILENCE_DURATION = 1.5  # Segundos de silencio para cortar la grabación
+VAD_SENSITIVITY = 1  # 0=permisivo, 3=estricto (1 es balanceado para ambientes reales)
+SILENCE_DURATION = 1.0  # Segundos de silencio para cortar después de hablar
+PRE_RECORD_BUFFER = 0.5 # Segundos de audio a guardar antes de que se detecte voz
+MAX_WAIT_SECONDS = 10.0 # Tiempo máximo esperando a que alguien empiece a hablar
 
-MODEL_NAME = "small"
-whisper_model = whisper.load_model(MODEL_NAME)
+MODEL_NAME = "small" # "tiny", "base", "small", "medium", "large"
 
 class STTService(Node):
     def __init__(self):
         super().__init__("stt_service_node")
-        # Servicio
+        
+        self.get_logger().info(f'⏳ Cargando modelo Whisper ({MODEL_NAME})...')
+        self.whisper_model = whisper.load_model(MODEL_NAME)
+        
+        # Servicio y Publisher
         self.srv = self.create_service(SetBool, "stt_service", self.stt_callback)
-        # Publisher
         self.pub = self.create_publisher(String, "/listened_text", 10)
-        self.get_logger().info(f'✅ STTService con Whisper ({MODEL_NAME}) inicializado. VAD siempre activo.')
-
+        
         # Inicializar VAD
         self.vad = webrtcvad.Vad()
         self.vad.set_mode(VAD_SENSITIVITY)
+        
+        self.get_logger().info('✅ STTService inicializado y listo.')
 
     def record_audio_with_vad(self):
-        frame_length = int(SAMPLE_RATE * FRAME_DURATION / 1000)
-        audio_buffer = []
+        """
+        Graba audio utilizando VAD. Mantiene un 'ring buffer' para no perder
+        el inicio de la frase y graba continuamente hasta detectar silencio.
+        """
+        frame_length = int(SAMPLE_RATE * FRAME_DURATION / 1000) # Samples per frame
+        
+        # Buffer circular para guardar audio PREVIO a la detección (evita cortar la primera sílaba)
+        maxlen_pre = int((SAMPLE_RATE / frame_length) * PRE_RECORD_BUFFER)
+        pre_buffer = collections.deque(maxlen=maxlen_pre)
+        
+        recorded_frames = []
+        triggered = False
+        start_wait_time = time.time()
         last_voice_time = None
 
-        self.get_logger().info('🎙 Esperando detección de voz...')
+        self.get_logger().info('🎙 Escuchando... (Hable ahora)')
 
         try:
             with sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, dtype='int16') as stream:
                 while True:
                     frame, overflow = stream.read(frame_length)
+                    if overflow:
+                        self.get_logger().warning("⚠️ Audio overflow")
+                    
                     frame = frame.flatten()
                     frame_bytes = frame.tobytes()
+                    
+                    # Chequeo de seguridad: VAD requiere frames de 10, 20 o 30ms
+                    try:
+                        is_speech = self.vad.is_speech(frame_bytes, SAMPLE_RATE)
+                    except Exception as e:
+                        self.get_logger().warning(f"VAD Error: {e}")
+                        is_speech = False
 
-                    is_speech = self.vad.is_speech(frame_bytes, SAMPLE_RATE)
+                    current_time = time.time()
 
-                    if is_speech:
-                        last_voice_time = time.time()
-                        audio_buffer.append(frame)
-                        self.get_logger().info('🔊 Voz detectada...')
-                    elif last_voice_time is not None and time.time() - last_voice_time > SILENCE_DURATION:
-                        self.get_logger().info('🛑 Silencio prolongado, terminando grabación.')
-                        break
+                    if not triggered:
+                        # --- FASE 1: ESPERANDO VOZ ---
+                        pre_buffer.append(frame)
+                        
+                        if is_speech:
+                            self.get_logger().info('🔊 Voz detectada, grabando...')
+                            triggered = True
+                            last_voice_time = current_time
+                            # Volcamos el buffer previo para recuperar el inicio de la frase
+                            recorded_frames.extend(pre_buffer)
+                        
+                        # Timeout si nadie habla
+                        elif (current_time - start_wait_time) > MAX_WAIT_SECONDS:
+                            self.get_logger().info('⏰ Timeout: Nadie habló.')
+                            return np.array([])
+                    else:
+                        # --- FASE 2: GRABANDO ---
+                        recorded_frames.append(frame)
+                        
+                        if is_speech:
+                            last_voice_time = current_time
+                        
+                        # Si ha pasado mucho tiempo desde la última voz, cortamos
+                        if (current_time - last_voice_time) > SILENCE_DURATION:
+                            self.get_logger().info('🛑 Fin de frase detectado.')
+                            break
+
         except Exception as e:
-            self.get_logger().error(f"❌ Error al abrir micrófono: {e}")
+            self.get_logger().error(f"❌ Error micrófono: {e}")
             return np.array([])
 
-        if audio_buffer:
-            audio_data = np.concatenate(audio_buffer)
-            write("/tmp/audio.wav", SAMPLE_RATE, audio_data)
-            self.get_logger().info(f"✅ Grabación guardada en /tmp/audio.wav, {audio_data.shape[0]} samples")
+        if recorded_frames:
+            audio_data = np.concatenate(recorded_frames)
+            # Opcional: Guardar para debug
+            # write("/tmp/debug_audio.wav", SAMPLE_RATE, audio_data)
             return audio_data
         else:
-            self.get_logger().info("⚠️ No se detectó voz.")
             return np.array([])
 
     def stt_callback(self, sRequest, sResponse):
         if not sRequest.data:
             sResponse.success = False
-            sResponse.message = "Llama al servicio con 'True' para iniciar reconocimiento."
+            sResponse.message = "Envia 'True' para comenzar a escuchar."
+            return sResponse
+
+        # 1. Grabar
+        audio_data = self.record_audio_with_vad()
+        
+        if len(audio_data) == 0:
+            sResponse.success = False
+            sResponse.message = "No se detectó audio o timeout."
             return sResponse
 
         try:
-            audio_data = self.record_audio_with_vad()
-            if len(audio_data) == 0:
-                sResponse.success = True
-                sResponse.message = "No se detectó voz."
-                return sResponse
-
-            # Convertir a float32 para Whisper
+            # 2. Preprocesar para Whisper (int16 -> float32 normalizado entre -1 y 1)
             audio_float = audio_data.astype(np.float32) / 32768.0
-            self.get_logger().info("🔍 Procesando audio con Whisper...")
-            result = whisper_model.transcribe(audio_float, language="es", fp16=False)
+            
+            # 3. Transcribir
+            self.get_logger().info("🧠 Procesando con Whisper...")
+            
+            # 'fp16=False' es necesario si corres en CPU. Si tienes GPU, quítalo o pon True.
+            result = self.whisper_model.transcribe(
+                audio_float, 
+                language="es", 
+                fp16=False 
+            )
 
-            transcribed_text = result["text"]
-            self.get_logger().info(f'📝 Transcripción: {transcribed_text}')
+            text = result["text"].strip()
+            self.get_logger().info(f'📝 Resultado: "{text}"')
 
-            # Publicar en el topic /listened_text
+            # 4. Publicar y Responder
             msg = String()
-            msg.data = transcribed_text
+            msg.data = text
             self.pub.publish(msg)
-            self.get_logger().info("📢 Texto publicado en /listened_text")
 
-            # Responder al servicio también
             sResponse.success = True
-            sResponse.message = transcribed_text
+            sResponse.message = text
 
         except Exception as e:
-            self.get_logger().error(f'❌ Error en STT: {e}')
+            self.get_logger().error(f'❌ Error inferencia: {e}')
             sResponse.success = False
             sResponse.message = str(e)
 
@@ -124,9 +167,14 @@ class STTService(Node):
 
 def main():
     rclpy.init()
-    stt_service = STTService()
-    rclpy.spin(stt_service)
-    rclpy.shutdown()
+    node = STTService()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
 
 if __name__ == "__main__":
     main()

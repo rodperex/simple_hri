@@ -12,6 +12,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', ['launch/simple_hri.launch.py']),
+        ('share/' + package_name + '/launch', ['launch/local_simple_hri.launch.py']),
         ('share/' + package_name + '/params', glob('params/*')),
     ],
     install_requires=['setuptools'],
@@ -24,9 +25,12 @@ setup(
     entry_points={
         'console_scripts': [
             'tts_service = simple_hri.tts_service:main',
+            'tts_service_local = simple_hri.tts_service_local:main',
+            'tts_service_hf = simple_hri.tts_service_hf:main',
             'stt_service = simple_hri.stt_service:main',
             'stt_service_local = simple_hri.stt_service_local:main',
             'extract_service = simple_hri.extract_service:main',
+            'extract_service_local = simple_hri.extract_service_local:main',
             'test_services = simple_hri.test_services:main',
             'test_extract = simple_hri.test_extract:main', 
         ],

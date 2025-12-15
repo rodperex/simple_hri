@@ -6,3 +6,5 @@ openai-whisper>=20230314
 scipy>=1.10.0
 openai>=1.32.0
 google-cloud-texttospeech>=2.16.0
+transformers>=4.57.0
+torch>=2.5.0

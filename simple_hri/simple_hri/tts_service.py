@@ -30,8 +30,6 @@ from hni_interfaces.srv import TextToSpeech
 from sound_play.libsoundplay import SoundClient
 
 #from sound_play.msg import SoundRequest
-from sound_play_msgs.msg import SoundRequest
-
 
 from std_msgs.msg import String
 
