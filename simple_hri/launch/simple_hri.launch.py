@@ -24,9 +24,9 @@ def generate_launch_description():
             name='extract_service_node',
             output='screen'
         ),
-        # IncludeLaunchDescription(
-        #     AnyLaunchDescriptionSource([
-        #         FindPackageShare('sound_play'), '/launch/soundplay_node.launch.xml'
-        #     ])
-        # ),
+        IncludeLaunchDescription(
+            AnyLaunchDescriptionSource([
+                FindPackageShare('sound_play'), '/launch/soundplay_node.launch.xml'
+            ])
+        ),
     ])
