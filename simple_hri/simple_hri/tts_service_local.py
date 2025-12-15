@@ -12,6 +12,7 @@ from transformers import pipeline
 # Import your custom service interface
 from hni_interfaces.srv import TextToSpeech
 from sound_play.libsoundplay import SoundClient
+from audio_send_interfaces.srv import SendAudio
 
 class HFTTSService(Node):
     def __init__(self):
@@ -21,10 +22,18 @@ class HFTTSService(Node):
         self.declare_parameter('lang_code', 'spa') 
         self.declare_parameter('volume', 1.0)
         self.declare_parameter('use_gpu', False) # New param to toggle GPU
+        self.declare_parameter('play_sound', True) # If True, use SoundClient to play audio. If False, publish audio data.
         
         lang_code = self.get_parameter('lang_code').get_parameter_value().string_value
         self.volume = self.get_parameter('volume').get_parameter_value().double_value
         use_gpu = self.get_parameter('use_gpu').get_parameter_value().bool_value
+        self.play_sound = self.get_parameter('play_sound').get_parameter_value().bool_value
+
+        if not self.play_sound:
+            self.get_logger().info("TTS Service configured to PUBLISH audio data instead of playing it.")
+            self.audio_send_client = self.create_client(SendAudio, '/trigger_audio_send')
+        else:
+            self.get_logger().info("TTS Service configured to PLAY audio via SoundClient.")
 
         # Device selection
         self.device = -1 # CPU
@@ -84,7 +93,18 @@ class HFTTSService(Node):
             
             # 5. Play via SoundClient
             # Ensure sound_play node can access /tmp
-            self.sound_handle_b.playWave(output_path, self.volume)
+            if self.play_sound:
+                self.sound_handle_b.playWave(output_path, self.volume)
+
+            else:
+                if self.audio_send_client.service_is_ready():
+                    send_req = SendAudio.Request()
+                    send_req.file_path = output_path
+                    
+                    self.audio_send_client.call_async(send_req)
+                    
+                else:
+                    self.get_logger().warn("Audio send service not available.")
 
             sResponse.success = True
             sResponse.debug = f"Generated {output_path} via HF MMS-TTS"
@@ -97,7 +117,7 @@ class HFTTSService(Node):
             sResponse.debug = str(e)
 
         return sResponse
-
+    
 def main():
     rclpy.init()
     try:

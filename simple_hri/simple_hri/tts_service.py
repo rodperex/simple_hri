@@ -28,6 +28,7 @@ from hni_interfaces.srv import TextToSpeech
 # string debug
 
 from sound_play.libsoundplay import SoundClient
+from audio_send_interfaces.srv import SendAudio
 
 #from sound_play.msg import SoundRequest
 
@@ -37,6 +38,15 @@ from std_msgs.msg import String
 class TTSService(Node):
     def __init__(self):
         super().__init__("tts_srv_node")
+
+        self.declare_parameter('play_sound', True) # If True, use SoundClient to play audio. If False, publish audio data.
+
+        self.play_sound = self.get_parameter('play_sound').get_parameter_value().bool_value
+
+        if not self.play_sound:
+            self.get_logger().info("TTS Service configured to PUBLISH audio data instead of playing it.")
+        
+        self.audio_send_client = self.create_client(SendAudio, '/trigger_audio_send')
 
         # Instantiates a google tts client
         self.client = texttospeech.TextToSpeechClient()
@@ -88,10 +98,18 @@ class TTSService(Node):
 
             self.get_logger().info(f'Playing output.ogg at {self.volume*100}% volume.')
             
+            if self.play_sound:
+                self.sound_handle_b.playWave("/tmp/output.ogg", self.volume)
 
-            self.sound_handle_b.playWave("/tmp/output.ogg",self.volume)
-
-            self.get_logger().debug('Playwave stopped')
+            else:
+                if self.audio_send_client.service_is_ready():
+                    send_req = SendAudio.Request()
+                    send_req.file_path = "/tmp/output.ogg"
+                    
+                    self.audio_send_client.call_async(send_req)
+                    
+                else:
+                    self.get_logger().warn("Audio send service not available.")
 
             sResponse.success = True
 
