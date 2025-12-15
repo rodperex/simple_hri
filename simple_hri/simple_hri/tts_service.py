@@ -71,7 +71,7 @@ class TTSService(Node):
 
         self.volume = 0.9 # from 0.1 to 1.0
 
-        self.get_logger().info("TTSService Server initialized.")
+        self.get_logger().info("✅ TTSService Server initialized.")
 
     def tts_callback(self, sRequest, sResponse):
         # response.sum = request.a + request.b

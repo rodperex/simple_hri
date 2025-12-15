@@ -9,7 +9,7 @@ from launch.conditions import IfCondition
 
 def generate_launch_description():
     
-    tts_talks = True
+    tts_talks = False
 
     if not tts_talks:
         param = 'true'
