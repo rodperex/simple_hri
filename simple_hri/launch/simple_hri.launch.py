@@ -9,11 +9,16 @@ from launch.conditions import IfCondition
 
 def generate_launch_description():
     
-    
+    tts_talks = True
+
+    if not tts_talks:
+        param = 'true'
+    else:
+        param = 'false'
     # Argument to toggle audio nodes on/off
     run_audio_service_arg = DeclareLaunchArgument(
         'run_audio_service',
-        default_value='false',
+        default_value=param,
         description='Set to "true" to launch audio service, player, and sound_play'
     )
 
@@ -51,7 +56,7 @@ def generate_launch_description():
         output='screen',
         parameters=[
             {'language': tts_language_config},
-            {'play_sound': True} # False when using audio service
+            {'play_sound': tts_talks} # False when using audio service
         ]
     )   
 
