@@ -29,6 +29,7 @@ setup(
             'stt_service = simple_hri.stt_service:main',
             'stt_service_local = simple_hri.stt_service_local:main',
             'extract_service = simple_hri.extract_service:main',
+            'yesno_service = simple_hri.yesono_service:main',
             'extract_service_local = simple_hri.extract_service_local:main',
             'test_services = simple_hri.test_services:main',
             'test_extract = simple_hri.test_extract:main', 

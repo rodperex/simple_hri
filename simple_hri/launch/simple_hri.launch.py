@@ -67,6 +67,13 @@ def generate_launch_description():
         output='screen'
     )
 
+    extract_node = Node(
+        package='simple_hri',
+        executable='yesno_service',
+        name='yesno_service_node',
+        output='screen'
+    )
+
     audio_service_node = Node(
         package='simple_hri',
         executable='audio_service',
