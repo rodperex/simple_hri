@@ -3,21 +3,15 @@ from launch_ros.actions import Node
 from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
 from launch.launch_description_sources import AnyLaunchDescriptionSource
 from launch_ros.substitutions import FindPackageShare
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch.conditions import IfCondition
 
 def generate_launch_description():
     
-    tts_talks = True
-
-    if not tts_talks:
-        param = 'true'
-    else:
-        param = 'false'
     # Argument to toggle audio nodes on/off
     run_audio_service_arg = DeclareLaunchArgument(
         'run_audio_service',
-        default_value=param,
+        default_value='false',
         description='Set to "true" to launch audio service, player, and sound_play'
     )
 
@@ -41,6 +35,10 @@ def generate_launch_description():
     should_run_sound_play = LaunchConfiguration('run_sound_play')
     tts_language_config = LaunchConfiguration('tts_lang')
 
+    tts_play_sound_param = PythonExpression([
+        'not "', should_run_audio_service, '" == "true"'
+    ])
+
     stt_node = Node(
         package='simple_hri',
         executable='stt_service',
@@ -55,7 +53,7 @@ def generate_launch_description():
         output='screen',
         parameters=[
             {'language': tts_language_config},
-            {'play_sound': tts_talks} # False when using audio service
+            {'play_sound': tts_play_sound_param} # False when using audio service
         ]
     )
        
@@ -94,14 +92,6 @@ def generate_launch_description():
             FindPackageShare('sound_play'), '/launch/soundplay_node.launch.xml'
         ]),
         condition=IfCondition(should_run_sound_play)
-    )
-
-    sound_play_launch = IncludeLaunchDescription(
-        AnyLaunchDescriptionSource([
-            FindPackageShare('sound_play'), '/launch/soundplay_node.launch.xml'
-        ]),
-        condition=IfCondition(should_run_sound_play),
-        launch_arguments={'run_sound_play': should_run_sound_play}.items()
     )
 
     
