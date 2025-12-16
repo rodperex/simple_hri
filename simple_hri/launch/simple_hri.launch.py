@@ -25,7 +25,7 @@ def generate_launch_description():
     # Argument to toggle sound play node on/off
     run_sound_play_arg = DeclareLaunchArgument(
         'run_sound_play',
-        default_value='false',
+        default_value='true',
         description='Set to "false" to disable the sound play node'
     )
 
@@ -36,7 +36,7 @@ def generate_launch_description():
     tts_language_config = LaunchConfiguration('tts_lang')
 
     tts_play_sound_param = PythonExpression([
-        'not "', should_run_audio_service, '" == "true"'
+        'not "', should_run_audio_service, '".lower() == "true"'
     ])
 
     stt_node = Node(
