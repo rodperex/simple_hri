@@ -1,4 +1,3 @@
-import os
 from launch import LaunchDescription
 from launch_ros.actions import Node
 from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
@@ -32,7 +31,7 @@ def generate_launch_description():
     # Argument to toggle sound play node on/off
     run_sound_play_arg = DeclareLaunchArgument(
         'run_sound_play',
-        default_value='true',
+        default_value='false',
         description='Set to "false" to disable the sound play node'
     )
 
@@ -58,8 +57,8 @@ def generate_launch_description():
             {'language': tts_language_config},
             {'play_sound': tts_talks} # False when using audio service
         ]
-    )   
-
+    )
+       
     extract_node = Node(
         package='simple_hri',
         executable='extract_service',
@@ -67,7 +66,7 @@ def generate_launch_description():
         output='screen'
     )
 
-    extract_node = Node(
+    yesno_node = Node(
         package='simple_hri',
         executable='yesno_service',
         name='yesno_service_node',
@@ -97,6 +96,14 @@ def generate_launch_description():
         condition=IfCondition(should_run_sound_play)
     )
 
+    sound_play_launch = IncludeLaunchDescription(
+        AnyLaunchDescriptionSource([
+            FindPackageShare('sound_play'), '/launch/soundplay_node.launch.xml'
+        ]),
+        condition=IfCondition(should_run_sound_play),
+        launch_arguments={'run_sound_play': should_run_sound_play}.items()
+    )
+
     
     return LaunchDescription([
         # Arguments
@@ -108,6 +115,7 @@ def generate_launch_description():
         stt_node,
         tts_node,
         extract_node,
+        yesno_node,
         
         # Conditional Nodes
         audio_service_node,
