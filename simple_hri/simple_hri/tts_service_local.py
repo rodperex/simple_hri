@@ -10,7 +10,7 @@ from rclpy.node import Node
 from transformers import pipeline
 
 # Import your custom service interface
-from hni_interfaces.srv import TextToSpeech
+from simple_hri_interfaces.srv import Speech
 from sound_play.libsoundplay import SoundClient
 from audio_send_interfaces.srv import SendAudio
 
@@ -58,7 +58,7 @@ class HFTTSService(Node):
         self.sound_handle_b = SoundClient(self, blocking=False)
 
         # Create Service
-        self.srv = self.create_service(TextToSpeech, "tts_service", self.tts_callback)
+        self.srv = self.create_service(Speech, "tts_service", self.tts_callback)
         
         self.get_logger().info("TTSService (Hugging Face) initialized.")
 

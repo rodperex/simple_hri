@@ -15,7 +15,6 @@
   <exec_depend>rclpy</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>std_srvs</exec_depend>
-  <exec_depend>hni_interfaces</exec_depend>
   <exec_depend>sound_play</exec_depend>
   <exec_depend>sound_play_msgs</exec_depend>
 

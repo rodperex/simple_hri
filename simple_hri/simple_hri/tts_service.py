@@ -20,7 +20,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.duration import Duration
 
-from hni_interfaces.srv import TextToSpeech
+from simple_hri_interfaces.srv import Speech
 
 # string text
 # ---
@@ -67,7 +67,7 @@ class TTSService(Node):
 
         self.sound_handle_b = SoundClient(self, blocking=False)
 
-        self.srv = self.create_service(TextToSpeech, "tts_service", self.tts_callback)
+        self.srv = self.create_service(Speech, "tts_service", self.tts_callback)
 
         self.volume = 0.9 # from 0.1 to 1.0
 
