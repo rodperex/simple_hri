@@ -1,0 +1,5 @@
+repositories:
+  thirpdarty/audio_common:
+    type: git
+    url: https://github.com/rodperex/audio_common
+    version: ros2

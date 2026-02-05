@@ -18,37 +18,34 @@ A lightweight Python package providing speech-to-text (STT) and text-to-speech (
 - **ROS 2 Jazzy** (or compatible versions)
 - **Python 3.12+**
 - Required ROS 2 packages:
-  - `sound_play` (https://github.com/rodperex/sound_play)
-  - `simple_hri_interfaces` (included in this repository)
+  - `audio_common` (https://github.com/rodperex/audio_common - branch: ros2)
   
 ## Installation
 
-### 1. Clone repositories into your ROS 2 workspace
+### 1. Clone the repository into your ROS 2 workspace
 
 ```bash
 cd ~/ros2_ws/src
-
-# Clone simple_hri
 git clone https://github.com/rodperex/simple_hri.git
-
-# Clone sound_play (required for TTS audio playback)
-git clone git@github.com:rodperex/sound_play.git -b ros2
-
-# Clone audio-common
-git clone git@github.com:mgonzs13/audio_common.git
 ```
 
-Remove (or COLCON_IGNORE) package sound_play inside audio_common repo.
-
-
-### 2. Install Python dependencies
+### 2. Install third-party dependencies using vcs
 
 ```bash
-cd simple_hri
-pip install -r requirements.txt
+cd ~/ros2_ws
+vcs import src < src/simple_hri/thirdparty.repos
 ```
 
-### 3. Configure API credentials
+This will automatically clone the required `audio_common` repository.
+
+### 3. Install Python dependencies
+
+```bash
+cd ~/ros2_ws/src/simple_hri
+pip install -r simple_hri/requirements.txt
+```
+
+### 4. Configure API credentials
 
 #### OpenAI API (for STT with Whisper and Extract Service)
 ```bash
@@ -62,20 +59,11 @@ export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/google_credentials.json"
 
 > **Note:** To obtain Google Cloud credentials, follow [these instructions](https://cloud.google.com/text-to-speech/docs/quickstart-client-libraries).
 
-### 4. Build the workspace
+### 5. Build the workspace
 
 ```bash
 cd ~/ros2_ws
-
-# First build the interface packages
-colcon build --packages-select simple_hri_interfaces
-
-# Then build sound_play
-colcon build --packages-select sound_play
-
-# Finally build simple_hri
-colcon build --packages-select simple_hri
-
+colcon build --symlink-install
 source install/setup.bash
 ```
 
@@ -226,6 +214,7 @@ Plays stored audio files.
   <exec_depend>simple_hri</exec_depend>
   <exec_depend>simple_hri_interfaces</exec_depend>
   <exec_depend>sound_play</exec_depend>
+  <exec_depend>audio_common</exec_depend>
   
 </package>
 ```
