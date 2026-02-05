@@ -18,18 +18,28 @@ A lightweight Python package providing speech-to-text (STT) and text-to-speech (
 - **ROS 2 Jazzy** (or compatible versions)
 - **Python 3.12+**
 - Required ROS 2 packages:
-  - `hni_interfaces`
-  - `sound_play` and `sound_play_msgs`
-  - `audio_send_interfaces`
+  - `sound_play` (https://github.com/rodperex/sound_play)
+  - `simple_hri_interfaces` (included in this repository)
   
 ## Installation
 
-### 1. Clone into your ROS 2 workspace
+### 1. Clone repositories into your ROS 2 workspace
 
 ```bash
 cd ~/ros2_ws/src
+
+# Clone simple_hri
 git clone https://github.com/rodperex/simple_hri.git
+
+# Clone sound_play (required for TTS audio playback)
+git clone git@github.com:rodperex/sound_play.git -b ros2
+
+# Clone audio-common
+git clone git@github.com:mgonzs13/audio_common.git
 ```
+
+Remove (or COLCON_IGNORE) package sound_play inside audio_common repo.
+
 
 ### 2. Install Python dependencies
 
@@ -56,7 +66,16 @@ export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/google_credentials.json"
 
 ```bash
 cd ~/ros2_ws
+
+# First build the interface packages
+colcon build --packages-select simple_hri_interfaces
+
+# Then build sound_play
+colcon build --packages-select sound_play
+
+# Finally build simple_hri
 colcon build --packages-select simple_hri
+
 source install/setup.bash
 ```
 
@@ -109,20 +128,20 @@ if response.success:
 
 ### 2. Text-to-Speech (TTS)
 
-**Service:** `/tts_service` (type: `hni_interfaces/srv/TextToSpeech`)
+**Service:** `/tts_service` (type: `simple_hri_interfaces/srv/Speech`)
 
 Converts text to speech and plays it.
 
 **Python usage example:**
 ```python
-from hni_interfaces.srv import TextToSpeech
+from simple_hri_interfaces.srv import Speech
 
 # Create service client
-tts_client = self.create_client(TextToSpeech, '/tts_service')
+tts_client = self.create_client(Speech, '/tts_service')
 tts_client.wait_for_service()
 
 # Call the service
-request = TextToSpeech.Request()
+request = Speech.Request()
 request.text = "Hello, I am a robot"
 response = tts_client.call(request)
 
@@ -205,7 +224,8 @@ Plays stored audio files.
   <!-- ... -->
   
   <exec_depend>simple_hri</exec_depend>
-  <exec_depend>hni_interfaces</exec_depend>
+  <exec_depend>simple_hri_interfaces</exec_depend>
+  <exec_depend>sound_play</exec_depend>
   
 </package>
 ```
@@ -242,7 +262,7 @@ def generate_launch_description():
 import rclpy
 from rclpy.node import Node
 from std_srvs.srv import SetBool
-from hni_interfaces.srv import TextToSpeech
+from simple_hri_interfaces.srv import Speech
 from std_msgs.msg import String
 
 class MyHRINode(Node):
@@ -251,7 +271,7 @@ class MyHRINode(Node):
         
         # Service clients
         self.stt_client = self.create_client(SetBool, '/stt_service')
-        self.tts_client = self.create_client(TextToSpeech, '/tts_service')
+        self.tts_client = self.create_client(Speech, '/tts_service')
         
         # Subscriber to listened text
         self.text_sub = self.create_subscription(
@@ -265,7 +285,7 @@ class MyHRINode(Node):
         self.get_logger().info(f'Received text: {msg.data}')
         
     def speak(self, text):
-        request = TextToSpeech.Request()
+        request = Speech.Request()
         request.text = text
         future = self.tts_client.call_async(request)
         return future
