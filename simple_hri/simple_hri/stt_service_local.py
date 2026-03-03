@@ -24,14 +24,19 @@ SILENCE_DURATION = 1.0  # Segundos de silencio para cortar después de hablar
 PRE_RECORD_BUFFER = 0.5 # Segundos de audio a guardar antes de que se detecte voz
 MAX_WAIT_SECONDS = 10.0 # Tiempo máximo esperando a que alguien empiece a hablar
 
-MODEL_NAME = "small" # "tiny", "base", "small", "medium", "large"
+MODEL_NAME = "tiny" # "tiny", "base", "small", "medium", "large"
 
 class STTService(Node):
     def __init__(self):
         super().__init__("stt_service_node")
         
+        import os
         self.get_logger().info(f'⏳ Cargando modelo Whisper ({MODEL_NAME})...')
-        self.whisper_model = whisper.load_model(MODEL_NAME)
+        # Buscar directorio models/ en la jerarquía o usar variable de entorno
+        # Usar siempre ./models relativo al current working directory
+        whisper_cache_dir = os.path.abspath(os.path.join(os.getcwd(), 'models'))
+        os.makedirs(whisper_cache_dir, exist_ok=True)
+        self.whisper_model = whisper.load_model(MODEL_NAME, download_root=whisper_cache_dir)
         
         # Servicio y Publisher
         self.srv = self.create_service(SetBool, "stt_service", self.stt_callback)

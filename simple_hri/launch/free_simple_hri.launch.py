@@ -59,7 +59,7 @@ def generate_launch_description():
                 ),
                 Node(
                     package='simple_hri',
-                    executable='extract_service_local',
+                    executable='extract_service_hugg',
                     name='extract_service_node',
                     output='screen'
                 ),

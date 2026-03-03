@@ -2,6 +2,13 @@
 
 import os
 import uuid
+
+# Configurar caché de transformers ANTES de importar
+cache_dir = os.path.abspath(os.path.join(os.getcwd(), 'models'))
+os.makedirs(cache_dir, exist_ok=True)
+os.environ['TRANSFORMERS_CACHE'] = cache_dir
+os.environ['HF_HOME'] = cache_dir
+
 import torch
 import numpy as np
 import scipy.io.wavfile
@@ -47,7 +54,6 @@ class HFTTSService(Node):
         self.get_logger().info(f"Loading Hugging Face Model: {model_id}...")
         
         try:
-            # Pass device to pipeline
             self.synthesizer = pipeline("text-to-speech", model=model_id, device=self.device)
             self.get_logger().info("Hugging Face Model loaded successfully.")
         except Exception as e:
