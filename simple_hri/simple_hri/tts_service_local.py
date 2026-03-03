@@ -6,7 +6,6 @@ import uuid
 # Configurar caché de transformers ANTES de importar
 cache_dir = os.path.abspath(os.path.join(os.getcwd(), 'models'))
 os.makedirs(cache_dir, exist_ok=True)
-os.environ['TRANSFORMERS_CACHE'] = cache_dir
 os.environ['HF_HOME'] = cache_dir
 
 import torch

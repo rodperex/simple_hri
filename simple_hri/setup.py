@@ -32,6 +32,7 @@ setup(
             'yesno_service = simple_hri.yesno_service:main',
             'yesno_service_local = simple_hri.yesno_service_local:main',
             'extract_service_hugg = simple_hri.extract_service_hugg:main',
+            'extract_service_local = simple_hri.extract_service_local:main',
             'test_services = simple_hri.test_services:main',
             'test_extract = simple_hri.test_extract:main', 
             'audio_service = simple_hri.audio_service:main',

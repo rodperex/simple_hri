@@ -74,7 +74,13 @@ source install/setup.bash
 ros2 launch simple_hri simple_hri.launch.py
 ```
 
-### Launch local services (no Internet connection required)
+### Launch free services (extract service is not run local due to the model used)
+
+```bash
+ros2 launch simple_hri free_simple_hri.launch.py
+```
+
+### Launch local services
 
 ```bash
 ros2 launch simple_hri local_simple_hri.launch.py
