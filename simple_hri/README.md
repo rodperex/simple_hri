@@ -5,13 +5,16 @@ A lightweight Python package providing speech-to-text (STT) and text-to-speech (
 
 ## Features
 
-- **Speech-to-Text (STT):** Convert audio to text using OpenAI Whisper API or local models
-- **Text-to-Speech (TTS):** Generate natural speech from text using Google Cloud TTS or local models
-- **Extract Service:** Extract specific information from audio using OpenAI LLMs
-- **Yes/No Service:** Detect confirmation responses in simple interactions
+- **Speech-to-Text (STT):** Convert audio to text using OpenAI Whisper API (cloud) or local Whisper models
+- **Text-to-Speech (TTS):** Generate natural speech from text using Google Cloud TTS (cloud) or local TTS models
+- **Extract Service:** Extract specific information from audio using OpenAI LLMs (cloud), local transformers models, or HuggingFace Inference API (free)
+- **Yes/No Service:** Detect confirmation responses in simple interactions (cloud or local)
 - **Voice Activity Detection (VAD):** Automatically record audio when detecting human voice
 - **Audio Playback:** Integrated services to play audio on the robot
-- **Cloud and Local Versions:** Online (APIs) and offline (local models) options
+- **Three Deployment Options:** 
+  - **Cloud:** High-quality APIs with OpenAI and Google Cloud (requires Internet and paid credentials)
+  - **Local:** Fully offline using transformers models (no Internet required after setup, optional HF_TOKEN)
+  - **Free:** Mix of local models + HuggingFace free API (requires free HF_TOKEN)
 
 ## Requirements
 
@@ -45,19 +48,36 @@ cd ~/ros2_ws/src/simple_hri
 pip install -r simple_hri/requirements.txt
 ```
 
-### 4. Configure API credentials
+### 4. Configure API credentials (only for cloud services)
 
-#### OpenAI API (for STT with Whisper and Extract Service)
+**⚠️ Note:** API credentials are **only required** if you plan to use the **cloud-based launcher** (`simple_hri.launch.py`). The local and free launchers work completely offline without any API keys.
+
+#### OpenAI API (for cloud STT, Extract, and Yes/No services)
 ```bash
 export OPENAI_API_KEY="your_openai_api_key"
 ```
 
-#### Google Cloud TTS (for TTS)
+#### Google Cloud TTS (for cloud TTS service)
 ```bash
 export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/google_credentials.json"
 ```
 
 > **Note:** To obtain Google Cloud credentials, follow [these instructions](https://cloud.google.com/text-to-speech/docs/quickstart-client-libraries).
+
+#### HuggingFace Token (only for free launcher)
+```bash
+export HF_TOKEN="your_huggingface_token"
+```
+
+> **Note:** 
+> - **Mandatory** for `free_simple_hri.launch.py` (uses HuggingFace Inference API)
+> - **Not needed** for `local_simple_hri.launch.py` (works without token, may help avoid rate limits during first download)
+> - Get your free token at: https://huggingface.co/settings/tokens
+
+**Summary of credential requirements by launcher:**
+- **simple_hri.launch.py** → Requires `OPENAI_API_KEY` + `GOOGLE_APPLICATION_CREDENTIALS`
+- **local_simple_hri.launch.py** → No credentials needed (works without any tokens)
+- **free_simple_hri.launch.py** → **Requires `HF_TOKEN`** (uses HuggingFace Inference API)
 
 ### 5. Build the workspace
 
@@ -69,17 +89,69 @@ source install/setup.bash
 
 ## Quick Start
 
-### Launch all services (cloud version)
+### Available Launch Files
+
+The package provides **three launch files** to accommodate different deployment scenarios:
+
+#### 1. Cloud-based services (simple_hri.launch.py)
+
+Uses cloud APIs for all services. **Requires Internet connection and API credentials.**
 
 ```bash
 ros2 launch simple_hri simple_hri.launch.py
 ```
 
-### Launch local services (no Internet connection required)
+**Models and APIs used:**
+- **STT:** OpenAI Whisper API (cloud)
+- **TTS:** Google Cloud Text-to-Speech API (cloud)
+- **Extract:** OpenAI GPT models (cloud)
+- **Yes/No:** Uses cloud STT internally
+
+**Required credentials:**
+- `OPENAI_API_KEY` environment variable
+- `GOOGLE_APPLICATION_CREDENTIALS` environment variable (path to JSON file)
+
+#### 2. Local services (local_simple_hri.launch.py)
+
+Runs completely offline using local models. **No Internet connection required after initial setup.**
 
 ```bash
 ros2 launch simple_hri local_simple_hri.launch.py
 ```
+
+**Models used:**
+- **STT:** Local Whisper model (`openai-whisper` library)
+- **TTS:** HuggingFace model `facebook/mms-tts-{lang}` via `transformers`
+- **Extract:** HuggingFace model (e.g., `google/flan-t5-small`) via `transformers` - local inference
+- **Yes/No:** Local STT processing
+
+**Required credentials:** 
+- **None** - Works completely without any tokens
+- HF_TOKEN not required (transformers downloads public models without authentication)
+- Optional: Setting `HF_TOKEN` may help avoid rate limits during first download
+
+**First run:** Models will be automatically downloaded to `./models/` directory (requires Internet)
+
+#### 3. Free/HuggingFace services (free_simple_hri.launch.py)
+
+Uses HuggingFace Inference API for extract service. **Requires HF_TOKEN but uses free tier.**
+
+```bash
+ros2 launch simple_hri free_simple_hri.launch.py
+```
+
+**Models used:**
+- **STT:** Local Whisper model (HuggingFace)
+- **TTS:** HuggingFace model `facebook/mms-tts-{lang}` via `transformers` (local)
+- **Extract:** HuggingFace Inference API with `meta-llama/Meta-Llama-3-8B-Instruct` (remote, free tier)
+- **Yes/No:** Local STT processing
+
+**Required credentials:** 
+- **Mandatory:** `HF_TOKEN` (HuggingFace token) - Required by `extract_service_hugg`
+  - Get your free token at: https://huggingface.co/settings/tokens
+  - Uses HuggingFace free inference API (no charges)
+
+**First run:** Local models will be downloaded to `./models/` directory (requires Internet)
 
 ### Test the services
 
@@ -190,17 +262,19 @@ Plays stored audio files.
 
 ## Available Nodes
 
-| Node | Description | Command |
-|------|-------------|---------|
-| `tts_service` | TTS with Google Cloud (online) | `ros2 run simple_hri tts_service` |
-| `tts_service_local` | Local TTS with transformers | `ros2 run simple_hri tts_service_local` |
-| `stt_service` | STT with Whisper API (online) | `ros2 run simple_hri stt_service` |
-| `stt_service_local` | Local STT with Whisper | `ros2 run simple_hri stt_service_local` |
-| `extract_service` | Extraction with LLM (online) | `ros2 run simple_hri extract_service` |
-| `extract_service_local` | Local extraction | `ros2 run simple_hri extract_service_local` |
-| `yesno_service` | Yes/No detection | `ros2 run simple_hri yesno_service` |
-| `audio_service` | Audio service | `ros2 run simple_hri audio_service` |
-| `audio_file_player` | File player | `ros2 run simple_hri audio_file_player` |
+| Node | Description | Type | API Keys Required | Command |
+|------|-------------|------|-------------------|---------|
+| `tts_service` | TTS with Google Cloud | Cloud | `GOOGLE_APPLICATION_CREDENTIALS` | `ros2 run simple_hri tts_service` |
+| `tts_service_local` | Local TTS with transformers | Local | No | `ros2 run simple_hri tts_service_local` |
+| `stt_service` | STT with Whisper API | Cloud | `OPENAI_API_KEY` | `ros2 run simple_hri stt_service` |
+| `stt_service_local` | Local STT with Whisper | Local | No | `ros2 run simple_hri stt_service_local` |
+| `extract_service` | Extraction with OpenAI LLM | Cloud | `OPENAI_API_KEY` | `ros2 run simple_hri extract_service` |
+| `extract_service_local` | Local extraction (transformers) | Local | No | `ros2 run simple_hri extract_service_local` |
+| `extract_service_hugg` | Extraction with HF Inference API | Remote (Free) | **`HF_TOKEN`** (mandatory) | `ros2 run simple_hri extract_service_hugg` |
+| `yesno_service` | Yes/No detection (cloud STT) | Cloud | `OPENAI_API_KEY` | `ros2 run simple_hri yesno_service` |
+| `yesno_service_local` | Yes/No detection (pattern matching) | Local | No | `ros2 run simple_hri yesno_service_local` |
+| `audio_service` | Audio recording service | Local | No | `ros2 run simple_hri audio_service` |
+| `audio_file_player` | Audio file player | Local | No | `ros2 run simple_hri audio_file_player` |
 
 ## Integrating into Your Project
 
