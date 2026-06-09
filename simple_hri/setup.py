@@ -37,6 +37,7 @@ setup(
             'test_extract = simple_hri.test_extract:main', 
             'audio_service = simple_hri.audio_service:main',
             'audio_file_player = simple_hri.audio_file_player:main',
+            'analyze_image_service = simple_hri.analyze_image_service:main',
         ],
     },
 )
