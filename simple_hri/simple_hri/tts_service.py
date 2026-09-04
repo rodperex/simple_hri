@@ -65,7 +65,7 @@ class TTSService(Node):
             audio_encoding=texttospeech.AudioEncoding.OGG_OPUS
         )
 
-        self.sound_handle_b = SoundClient(self, blocking=True)
+        self.sound_handle_b = SoundClient(self, blocking=False)
 
         self.srv = self.create_service(Speech, "tts_service", self.tts_callback)
 

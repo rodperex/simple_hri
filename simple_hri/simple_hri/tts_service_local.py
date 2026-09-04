@@ -60,7 +60,7 @@ class HFTTSService(Node):
             self.synthesizer = pipeline("text-to-speech", model="facebook/mms-tts-eng", device=self.device)
 
         # Initialize Sound Client
-        self.sound_handle_b = SoundClient(self, blocking=True)
+        self.sound_handle_b = SoundClient(self, blocking=False)
 
         # Create Service
         self.srv = self.create_service(Speech, "tts_service", self.tts_callback)

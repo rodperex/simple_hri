@@ -1,8 +1,6 @@
 from launch import LaunchDescription
 from launch_ros.actions import Node
-from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument, OpaqueFunction, GroupAction
-from launch.launch_description_sources import AnyLaunchDescriptionSource
-from launch_ros.substitutions import FindPackageShare
+from launch.actions import DeclareLaunchArgument, OpaqueFunction, GroupAction
 from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
@@ -97,10 +95,23 @@ def generate_launch_description():
     def start_sound_play(context):
         if LaunchConfiguration('start_sound_play').perform(context) == 'true':
             sound_play_nodes = GroupAction([
-                IncludeLaunchDescription(
-                    AnyLaunchDescriptionSource([
-                        FindPackageShare('sound_play'), '/launch/soundplay_node.launch.xml'
-                    ])
+                Node(
+                    package='sound_play',
+                    executable='soundplay_node.py',
+                    name='soundplay_node',
+                    output='screen',
+                    prefix='/usr/bin/python3'
+                ),
+                Node(
+                    package='sound_play',
+                    executable='is_speaking.py',
+                    name='is_speaking',
+                    output='screen',
+                    prefix='/usr/bin/python3',
+                    remappings=[
+                        ('~/robotsound', '/sound_play/_action/status'),
+                        ('~/output/is_speaking', '/sound_play/is_speaking')
+                    ]
                 )
             ])
             return [sound_play_nodes]
