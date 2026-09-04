@@ -44,6 +44,7 @@ class ExtractService(Node):
         self.model_id = self.get_parameter("model_id").get_parameter_value().string_value
         
         if self.hf_token:
+            self.get_logger().info(f'🚀 Inicializando cliente Hugging Face para modelo: {self.model_id}...')
             self.client = InferenceClient(api_key=self.hf_token)
             self.get_logger().info(f'✅ Cliente HF inicializado. Modelo: {self.model_id}')
         else:
