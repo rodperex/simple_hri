@@ -7,6 +7,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/Extract.srv"
   "srv/YesNo.srv"
   "srv/Speech.srv"
+  "srv/AnalyzeImage.srv"
 )
 
 ament_export_dependencies(rosidl_default_runtime)
