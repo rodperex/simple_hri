@@ -30,8 +30,9 @@ import time
 SAMPLE_RATE = 16000
 FRAME_DURATION = 30
 CHANNELS = 1
-VAD_SENSITIVITY = 0
+VAD_SENSITIVITY = 2  # 0=muy permisivo (ruido = voz, nunca corta), 3=muy estricto
 SILENCE_DURATION = 1.5
+MAX_WAIT_SECONDS = 10.0  # Tiempo máximo esperando a que alguien empiece a hablar
 
 class STTService(Node):
     def __init__(self):
@@ -58,6 +59,7 @@ class STTService(Node):
 
         audio_buffer = []
         last_voice_time = None
+        start_wait_time = time.time()
 
         stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=np.int16)
         with stream:
@@ -74,6 +76,9 @@ class STTService(Node):
                     audio_buffer.append(frame)
                 elif last_voice_time is not None and time.time() - last_voice_time > SILENCE_DURATION:
                     self.get_logger().info('🛑 Se detectó silencio prolongado. Terminando grabación.')
+                    break
+                elif last_voice_time is None and time.time() - start_wait_time > MAX_WAIT_SECONDS:
+                    self.get_logger().info('⏰ Timeout: no se detectó voz.')
                     break
 
         if audio_buffer:

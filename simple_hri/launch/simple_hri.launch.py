@@ -21,7 +21,7 @@ def generate_launch_description():
 
     tts_lang_arg = DeclareLaunchArgument(
         'tts_lang',
-        default_value='spa',
+        default_value='en_US',
         description='Language code for TTS service (e.g., en_US, es_ES)'
     )
 

@@ -16,6 +16,7 @@
 
 from google.cloud import texttospeech
 import time
+import uuid
 import rclpy
 from rclpy.node import Node
 from rclpy.duration import Duration
@@ -53,10 +54,10 @@ class TTSService(Node):
 
         self.voice = texttospeech.VoiceSelectionParams(
             #language_code="IT-IT", name="it-IT-Neural2-C"  # A female, C male
-            #language_code="en-US", name="en-US-Neural2-D"  # C female
+            language_code="en-US", name="en-US-Neural2-D"  # C female
             #language_code="en-US", name="en-US-Studio-Q"  # male, O female
             # language_code="en-US", name="en-US-Journey-D"
-            language_code="es-ES", name="es-ES-Journey-D"
+            # language_code="es-ES", name="es-ES-Journey-D"
 
         )
 
@@ -90,21 +91,23 @@ class TTSService(Node):
                 input=synthesis_input, voice=self.voice, audio_config=self.audio_config
             )
 
+            output_path = f"/tmp/tts_{uuid.uuid4().hex}.ogg"
+
             # The response's audio_content is binary.
-            with open("/tmp/output.ogg", "wb") as out:
+            with open(output_path, "wb") as out:
                 # Write the response to the output file.
                 out.write(response.audio_content)
                 self.get_logger().debug('Audio content written to file "output.ogg"')
 
-            self.get_logger().info(f'Playing output.ogg at {self.volume*100}% volume.')
+            self.get_logger().info(f'Playing {output_path} at {self.volume*100}% volume.')
             
             if self.play_sound:
-                self.sound_handle_b.playWave("/tmp/output.ogg", self.volume)
+                self.sound_handle_b.playWave(output_path, self.volume)
 
             else:
                 if self.audio_send_client.service_is_ready():
                     send_req = SendAudio.Request()
-                    send_req.file_path = "/tmp/output.ogg"
+                    send_req.file_path = output_path
                     
                     self.audio_send_client.call_async(send_req)
                     
