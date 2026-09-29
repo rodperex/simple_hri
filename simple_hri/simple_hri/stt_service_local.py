@@ -10,10 +10,13 @@ import webrtcvad
 import time
 import whisper
 import collections
+import threading
 from rclpy.node import Node
 from std_srvs.srv import SetBool
 from std_msgs.msg import String
 from scipy.io.wavfile import write
+
+from simple_hri.voice_actions import ListenActionServer, spin_multithreaded
 
 # --- Configuración ---
 SAMPLE_RATE = 16000
@@ -45,13 +48,22 @@ class STTService(Node):
         # Inicializar VAD
         self.vad = webrtcvad.Vad()
         self.vad.set_mode(VAD_SENSITIVITY)
+
+        # Acción /stt_action: mismo trabajo que el servicio, con feedback y cancelación.
+        # El cerrojo evita que servicio y acción usen el micrófono a la vez.
+        self.mic_lock = threading.Lock()
+        self.last_record_timed_out = False
+        self.listen_action = ListenActionServer(self, self.listen, self.mic_lock)
         
         self.get_logger().info('✅ STTService inicializado y listo.')
 
-    def record_audio_with_vad(self):
+    def record_audio_with_vad(self, max_wait=MAX_WAIT_SECONDS, should_stop=None, on_status=None):
         """
         Graba audio utilizando VAD. Mantiene un 'ring buffer' para no perder
         el inicio de la frase y graba continuamente hasta detectar silencio.
+
+        should_stop() se consulta en cada fragmento para poder cancelar, y on_status()
+        informa de la fase ("listening", "speech_detected"). Ambos son opcionales.
         """
         frame_length = int(SAMPLE_RATE * FRAME_DURATION / 1000) # Samples per frame
         
@@ -63,12 +75,19 @@ class STTService(Node):
         triggered = False
         start_wait_time = time.time()
         last_voice_time = None
+        self.last_record_timed_out = False
 
         self.get_logger().info('🎙 Escuchando... (Hable ahora)')
+        if on_status:
+            on_status('listening')
 
         try:
             with sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, dtype='int16') as stream:
                 while True:
+                    if should_stop and should_stop():
+                        self.get_logger().info('⏹ Grabación cancelada.')
+                        return np.array([])
+
                     frame, overflow = stream.read(frame_length)
                     if overflow:
                         self.get_logger().warning("⚠️ Audio overflow")
@@ -91,14 +110,17 @@ class STTService(Node):
                         
                         if is_speech:
                             self.get_logger().info('🔊 Voz detectada, grabando...')
+                            if on_status:
+                                on_status('speech_detected')
                             triggered = True
                             last_voice_time = current_time
                             # Volcamos el buffer previo para recuperar el inicio de la frase
                             recorded_frames.extend(pre_buffer)
                         
                         # Timeout si nadie habla
-                        elif (current_time - start_wait_time) > MAX_WAIT_SECONDS:
+                        elif (current_time - start_wait_time) > max_wait:
                             self.get_logger().info('⏰ Timeout: Nadie habló.')
+                            self.last_record_timed_out = True
                             return np.array([])
                     else:
                         # --- FASE 2: GRABANDO ---
@@ -131,7 +153,8 @@ class STTService(Node):
             return sResponse
 
         # 1. Grabar
-        audio_data = self.record_audio_with_vad()
+        with self.mic_lock:
+            audio_data = self.record_audio_with_vad()
         
         if len(audio_data) == 0:
             sResponse.success = False
@@ -139,27 +162,7 @@ class STTService(Node):
             return sResponse
 
         try:
-            # 2. Preprocesar para Whisper (int16 -> float32 normalizado entre -1 y 1)
-            audio_float = audio_data.astype(np.float32) / 32768.0
-            
-            # 3. Transcribir
-            self.get_logger().info("🧠 Procesando con Whisper...")
-            
-            # 'fp16=False' es necesario si corres en CPU. Si tienes GPU, quítalo o pon True.
-            result = self.whisper_model.transcribe(
-                audio_float, 
-                language="es", 
-                fp16=False 
-            )
-
-            text = result["text"].strip()
-            self.get_logger().info(f'📝 Resultado: "{text}"')
-
-            # 4. Publicar y Responder
-            msg = String()
-            msg.data = text
-            self.pub.publish(msg)
-
+            text = self.transcribe(audio_data)
             sResponse.success = True
             sResponse.message = text
 
@@ -170,16 +173,55 @@ class STTService(Node):
 
         return sResponse
 
+    def transcribe(self, audio_data):
+        """Transcribe el audio con Whisper y publica el texto en /listened_text."""
+        # Preprocesar para Whisper (int16 -> float32 normalizado entre -1 y 1)
+        audio_float = audio_data.astype(np.float32) / 32768.0
+
+        self.get_logger().info("🧠 Procesando con Whisper...")
+
+        # 'fp16=False' es necesario si corres en CPU. Si tienes GPU, quítalo o pon True.
+        result = self.whisper_model.transcribe(
+            audio_float,
+            language="es",
+            fp16=False
+        )
+
+        text = result["text"].strip()
+        self.get_logger().info(f'📝 Resultado: "{text}"')
+
+        msg = String()
+        msg.data = text
+        self.pub.publish(msg)
+        return text
+
+    def listen(self, max_wait, should_stop, on_status):
+        """Trabajo de la acción /stt_action (el cerrojo lo toma ListenActionServer)."""
+        audio_data = self.record_audio_with_vad(
+            max_wait if max_wait > 0 else MAX_WAIT_SECONDS, should_stop, on_status)
+
+        if should_stop():
+            return False, False, '', 'canceled'
+        if len(audio_data) == 0:
+            return False, self.last_record_timed_out, '', "No se detectó audio o timeout."
+
+        on_status('transcribing')
+        try:
+            text = self.transcribe(audio_data)
+            return True, False, text, text
+        except Exception as e:
+            self.get_logger().error(f'❌ Error inferencia: {e}')
+            return False, False, '', str(e)
+
 def main():
     rclpy.init()
     node = STTService()
     try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
+        spin_multithreaded(node)
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 if __name__ == "__main__":
     main()

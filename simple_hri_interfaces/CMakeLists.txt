@@ -7,6 +7,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/Extract.srv"
   "srv/YesNo.srv"
   "srv/Speech.srv"
+  "action/Listen.action"
+  "action/Say.action"
 )
 
 ament_export_dependencies(rosidl_default_runtime)

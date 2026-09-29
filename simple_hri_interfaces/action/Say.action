@@ -1,0 +1,11 @@
+# Say a text (same work as /tts_service, but it finishes when playback really ends)
+
+# Goal
+string text
+---
+# Result
+bool success
+string message
+---
+# Feedback
+float32 remaining  # Seconds of playback left (estimated if the duration is unknown)

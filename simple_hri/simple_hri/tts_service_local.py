@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import threading
 import uuid
 
 # Configurar caché de transformers ANTES de importar
@@ -19,6 +20,8 @@ from transformers import pipeline
 from simple_hri_interfaces.srv import Speech
 from sound_play.libsoundplay import SoundClient
 from audio_send_interfaces.srv import SendAudio
+
+from simple_hri.voice_actions import SayActionServer, spin_multithreaded
 
 class HFTTSService(Node):
     def __init__(self):
@@ -64,6 +67,11 @@ class HFTTSService(Node):
 
         # Create Service
         self.srv = self.create_service(Speech, "tts_service", self.tts_callback)
+
+        # Action /tts_action: same work as the service, but it finishes when playback ends
+        # and can be canceled. The lock serializes synthesis between service and action.
+        self.synth_lock = threading.Lock()
+        self.say_action = SayActionServer(self, self.speak, self.stop_speaking, self.synth_lock)
         
         self.get_logger().info("TTSService (Hugging Face) initialized.")
 
@@ -79,37 +87,8 @@ class HFTTSService(Node):
         self.get_logger().info(f"Processing TTS: '{reqText[:20]}...'")
 
         try:
-            # 1. Inference
-            result = self.synthesizer(reqText)
-            audio_data = result['audio']
-            sampling_rate = result['sampling_rate']
-
-            # 2. Data Normalization (Ensure float32 is within -1.0 to 1.0)
-            # HF output is usually correct, but Transpose if necessary
-            if audio_data.ndim > 1:
-                audio_data = audio_data.T
-            
-            # 3. Create Unique Filename to avoid race conditions
-            unique_filename = f"tts_{uuid.uuid4().hex}.wav"
-            output_path = os.path.join("/tmp", unique_filename)
-
-            # 4. Write WAV
-            scipy.io.wavfile.write(output_path, rate=sampling_rate, data=audio_data)
-            
-            # 5. Play via SoundClient
-            # Ensure sound_play node can access /tmp
-            if self.play_sound:
-                self.sound_handle_b.playWave(output_path, self.volume)
-
-            else:
-                if self.audio_send_client.service_is_ready():
-                    send_req = SendAudio.Request()
-                    send_req.file_path = output_path
-                    
-                    self.audio_send_client.call_async(send_req)
-                    
-                else:
-                    self.get_logger().warn("Audio send service not available.")
+            with self.synth_lock:
+                output_path, _ = self.synthesize_and_play(reqText)
 
             sResponse.success = True
             sResponse.debug = f"Generated {output_path} via HF MMS-TTS"
@@ -122,13 +101,71 @@ class HFTTSService(Node):
             sResponse.debug = str(e)
 
         return sResponse
-    
+
+    def synthesize_and_play(self, text):
+        """Synthesize the text, start playing it (non-blocking) and return (path, duration)."""
+        # 1. Inference
+        result = self.synthesizer(text)
+        audio_data = result['audio']
+        sampling_rate = result['sampling_rate']
+
+        # 2. Data Normalization (Ensure float32 is within -1.0 to 1.0)
+        # HF output is usually correct, but Transpose if necessary
+        if audio_data.ndim > 1:
+            audio_data = audio_data.T
+        duration = audio_data.shape[0] / sampling_rate
+
+        # 3. Create Unique Filename to avoid race conditions
+        unique_filename = f"tts_{uuid.uuid4().hex}.wav"
+        output_path = os.path.join("/tmp", unique_filename)
+
+        # 4. Write WAV
+        scipy.io.wavfile.write(output_path, rate=sampling_rate, data=audio_data)
+
+        # 5. Play via SoundClient
+        # Ensure sound_play node can access /tmp
+        if self.play_sound:
+            self.sound_handle_b.playWave(output_path, self.volume)
+
+        else:
+            if self.audio_send_client.service_is_ready():
+                send_req = SendAudio.Request()
+                send_req.file_path = output_path
+
+                self.audio_send_client.call_async(send_req)
+
+            else:
+                self.get_logger().warn("Audio send service not available.")
+
+        return output_path, duration
+
+    def speak(self, text):
+        """Work of the /tts_action action (SayActionServer takes the lock)."""
+        text = text.strip()
+        if not text:
+            return False, 0.0, "Empty text provided"
+        self.get_logger().info(f"Processing TTS (action): '{text[:20]}...'")
+        try:
+            output_path, duration = self.synthesize_and_play(text)
+            return True, duration, f"Generated {output_path} via HF MMS-TTS"
+        except Exception as e:
+            self.get_logger().error(f"TTS Inference/Playback failed: {e}")
+            return False, 0.0, str(e)
+
+    def stop_speaking(self):
+        """Stop the playback (used when the /tts_action goal is canceled)."""
+        if self.play_sound:
+            self.sound_handle_b.stopAll()
+        else:
+            self.get_logger().warn('Audio sent to another device: playback cannot be stopped.')
+
+
 def main():
     rclpy.init()
     try:
         tts_service = HFTTSService()
-        rclpy.spin(tts_service)
-    except KeyboardInterrupt:
+        spin_multithreaded(tts_service)
+    except KeyboardInterrupt:  # Ctrl+C while the model is loading
         pass
     finally:
         if rclpy.ok():

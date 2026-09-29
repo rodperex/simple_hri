@@ -1,2 +1,3 @@
-simple_hri/simple_hri/__pycache__/
+__pycache__/
+*.pyc
 models/

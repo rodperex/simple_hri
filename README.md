@@ -126,6 +126,42 @@ Detects if the user says "yes" or "no".
 
 Plays stored audio files.
 
+## Available Actions
+
+The STT and TTS nodes also offer the same work as **actions**. The services above are
+unchanged, so existing clients keep working; the actions add what a service cannot
+offer. Both are available at the same time and never use the microphone concurrently.
+
+### 1. Listen
+
+**Action:** `/stt_action` (type: `simple_hri_interfaces/action/Listen`)
+
+- **Goal:** `max_wait`: seconds to wait for the person to start speaking (`0` = default, 10 s).
+- **Feedback:** `status`: `listening`, `speech_detected`, `transcribing`.
+- **Result:** `success`, `timed_out` (nobody spoke), `text`, `message`. The text is also
+  published on `/listened_text`.
+- **Cancel:** stops recording immediately.
+
+### 2. Say
+
+**Action:** `/tts_action` (type: `simple_hri_interfaces/action/Say`)
+
+- **Goal:** `text`.
+- **Feedback:** `remaining`: seconds of playback left.
+- **Result:** `success`, `message`. Unlike `/tts_service`, which returns as soon as
+  playback starts, the action finishes when playback really ends (exact duration for the
+  local TTS; estimated from the text for the cloud one unless `soundfile` is installed).
+- **Cancel:** stops the audio through `sound_play` (not possible with `play_sound:=false`,
+  where the audio is sent to another device).
+
+```bash
+ros2 action send_goal --feedback /stt_action simple_hri_interfaces/action/Listen "{max_wait: 8.0}"
+ros2 action send_goal --feedback /tts_action simple_hri_interfaces/action/Say "{text: 'Hola'}"
+```
+
+The nodes now spin with a multi-threaded executor, so a cancel request is attended while
+the action is running.
+
 ## Available Nodes
 
 | Node | Description | Command |
