@@ -15,6 +15,7 @@
 # limitations under the License.
 
 from google.cloud import texttospeech
+import math
 import threading
 import time
 import uuid
@@ -29,13 +30,11 @@ from simple_hri_interfaces.srv import Speech
 # bool success
 # string debug
 
-from sound_play.libsoundplay import SoundClient
 from audio_send_interfaces.srv import SendAudio
-
-#from sound_play.msg import SoundRequest
 
 from std_msgs.msg import String
 
+from simple_hri.audio_player import AudioPlayer
 from simple_hri.voice_actions import (
     SayActionServer, audio_file_duration, estimate_duration, spin_multithreaded)
 
@@ -44,9 +43,11 @@ class TTSService(Node):
     def __init__(self):
         super().__init__("tts_srv_node")
 
-        self.declare_parameter('play_sound', True) # If True, use SoundClient to play audio. If False, publish audio data.
+        self.declare_parameter('play_sound', True) # If True, play the audio here. If False, publish audio data.
+        self.declare_parameter('audio_player', '') # Command used to play (e.g. 'aplay -q', 'pw-play'). '' = auto
 
         self.play_sound = self.get_parameter('play_sound').get_parameter_value().bool_value
+        audio_player = self.get_parameter('audio_player').get_parameter_value().string_value
 
         if not self.play_sound:
             self.get_logger().info("TTS Service configured to PUBLISH audio data instead of playing it.")
@@ -65,16 +66,18 @@ class TTSService(Node):
 
         )
 
-        # Select the type of audio file you want returned
+        self.volume = 0.9 # from 0.1 to 1.0
+
+        # WAV (LINEAR16) so that any player (aplay included) can play it.
+        # The volume is applied by Google when synthesizing.
         self.audio_config = texttospeech.AudioConfig(
-            audio_encoding=texttospeech.AudioEncoding.OGG_OPUS
+            audio_encoding=texttospeech.AudioEncoding.LINEAR16,
+            volume_gain_db=20 * math.log10(max(self.volume, 0.1))
         )
 
-        self.sound_handle_b = SoundClient(self, blocking=False)
+        self.player = AudioPlayer(self.get_logger(), audio_player)
 
         self.srv = self.create_service(Speech, "tts_service", self.tts_callback)
-
-        self.volume = 0.9 # from 0.1 to 1.0
 
         # Action /tts_action: same work as the service, but it finishes when playback ends
         # and can be canceled. The lock serializes synthesis between service and action.
@@ -114,18 +117,18 @@ class TTSService(Node):
             input=synthesis_input, voice=self.voice, audio_config=self.audio_config
         )
 
-        output_path = f"/tmp/tts_{uuid.uuid4().hex}.ogg"
+        output_path = f"/tmp/tts_{uuid.uuid4().hex}.wav"
 
         # The response's audio_content is binary.
         with open(output_path, "wb") as out:
             # Write the response to the output file.
             out.write(response.audio_content)
-            self.get_logger().debug('Audio content written to file "output.ogg"')
+            self.get_logger().debug(f'Audio content written to file "{output_path}"')
 
         self.get_logger().info(f'Playing {output_path} at {self.volume*100}% volume.')
 
         if self.play_sound:
-            self.sound_handle_b.playWave(output_path, self.volume)
+            self.player.play(output_path)
 
         else:
             if self.audio_send_client.service_is_ready():
@@ -149,7 +152,7 @@ class TTSService(Node):
         except Exception as e:
             self.get_logger().error(f'TTS failed: {e}')
             return False, 0.0, str(e)
-        # Real duration of the OGG file if it can be read; otherwise, estimated from the text
+        # Real duration of the WAV file if it can be read; otherwise, estimated from the text
         duration = audio_file_duration(output_path)
         if duration is None:
             duration = estimate_duration(text)
@@ -158,7 +161,7 @@ class TTSService(Node):
     def stop_speaking(self):
         """Stop the playback (used when the /tts_action goal is canceled)."""
         if self.play_sound:
-            self.sound_handle_b.stopAll()
+            self.player.stop()
         else:
             self.get_logger().warn('Audio sent to another device: playback cannot be stopped.')
 

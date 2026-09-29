@@ -18,9 +18,9 @@ from transformers import pipeline
 
 # Import your custom service interface
 from simple_hri_interfaces.srv import Speech
-from sound_play.libsoundplay import SoundClient
 from audio_send_interfaces.srv import SendAudio
 
+from simple_hri.audio_player import AudioPlayer
 from simple_hri.voice_actions import SayActionServer, spin_multithreaded
 
 class HFTTSService(Node):
@@ -31,18 +31,20 @@ class HFTTSService(Node):
         self.declare_parameter('lang_code', 'spa') 
         self.declare_parameter('volume', 1.0)
         self.declare_parameter('use_gpu', False) # New param to toggle GPU
-        self.declare_parameter('play_sound', True) # If True, use SoundClient to play audio. If False, publish audio data.
+        self.declare_parameter('play_sound', True) # If True, play the audio here. If False, publish audio data.
+        self.declare_parameter('audio_player', '') # Command used to play (e.g. 'aplay -q', 'pw-play'). '' = auto
         
         lang_code = self.get_parameter('lang_code').get_parameter_value().string_value
         self.volume = self.get_parameter('volume').get_parameter_value().double_value
         use_gpu = self.get_parameter('use_gpu').get_parameter_value().bool_value
         self.play_sound = self.get_parameter('play_sound').get_parameter_value().bool_value
+        audio_player = self.get_parameter('audio_player').get_parameter_value().string_value
 
         if not self.play_sound:
             self.get_logger().info("TTS Service configured to PUBLISH audio data instead of playing it.")
             self.audio_send_client = self.create_client(SendAudio, '/trigger_audio_send')
         else:
-            self.get_logger().info("TTS Service configured to PLAY audio via SoundClient.")
+            self.get_logger().info("TTS Service configured to PLAY audio.")
 
         # Device selection
         self.device = -1 # CPU
@@ -62,8 +64,7 @@ class HFTTSService(Node):
             self.get_logger().error(f"Failed to load {model_id}: {e}. Fallback to English.")
             self.synthesizer = pipeline("text-to-speech", model="facebook/mms-tts-eng", device=self.device)
 
-        # Initialize Sound Client
-        self.sound_handle_b = SoundClient(self, blocking=False)
+        self.player = AudioPlayer(self.get_logger(), audio_player)
 
         # Create Service
         self.srv = self.create_service(Speech, "tts_service", self.tts_callback)
@@ -119,13 +120,15 @@ class HFTTSService(Node):
         unique_filename = f"tts_{uuid.uuid4().hex}.wav"
         output_path = os.path.join("/tmp", unique_filename)
 
-        # 4. Write WAV
-        scipy.io.wavfile.write(output_path, rate=sampling_rate, data=audio_data)
+        # 4. Write a 16-bit PCM WAV with the volume applied (players such as aplay do not
+        # handle volume, and not every device accepts float samples)
+        audio_data = np.clip(audio_data * self.volume, -1.0, 1.0)
+        scipy.io.wavfile.write(output_path, rate=sampling_rate,
+                               data=(audio_data * 32767).astype(np.int16))
 
-        # 5. Play via SoundClient
-        # Ensure sound_play node can access /tmp
+        # 5. Play
         if self.play_sound:
-            self.sound_handle_b.playWave(output_path, self.volume)
+            self.player.play(output_path)
 
         else:
             if self.audio_send_client.service_is_ready():
@@ -155,7 +158,7 @@ class HFTTSService(Node):
     def stop_speaking(self):
         """Stop the playback (used when the /tts_action goal is canceled)."""
         if self.play_sound:
-            self.sound_handle_b.stopAll()
+            self.player.stop()
         else:
             self.get_logger().warn('Audio sent to another device: playback cannot be stopped.')
 

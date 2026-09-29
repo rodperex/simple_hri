@@ -287,8 +287,6 @@ Plays stored audio files.
   
   <exec_depend>simple_hri</exec_depend>
   <exec_depend>simple_hri_interfaces</exec_depend>
-  <exec_depend>sound_play</exec_depend>
-  <exec_depend>audio_common</exec_depend>
   
 </package>
 ```
@@ -376,6 +374,13 @@ ros2 run simple_hri tts_service --ros-args -p play_sound:=false
 ```
 
 - `play_sound`: If `false`, publishes audio data instead of playing it directly
+- `audio_player`: Command used to play the generated WAV files. By default, the first
+  one available of `aplay -q` (package `alsa-utils`), `pw-play` and `paplay`. Consecutive
+  sentences are played one after another. Also available as a launch argument:
+
+```bash
+ros2 launch simple_hri local_simple_hri.launch.py audio_player:=pw-play
+```
 
 ### Customize Extract Service prompts
 

@@ -21,6 +21,7 @@ feedback, cancellation and, for Say, finishing when playback really ends.
 """
 
 import time
+import wave
 
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -37,10 +38,10 @@ def estimate_duration(text):
 
 
 def audio_file_duration(path):
-    """Return the duration of an audio file in seconds, or None if it cannot be read."""
+    """Return the duration of a WAV file in seconds, or None if it cannot be read."""
     try:
-        import soundfile
-        return soundfile.info(path).duration
+        with wave.open(path, 'rb') as audio:
+            return audio.getnframes() / audio.getframerate()
     except Exception:
         return None
 

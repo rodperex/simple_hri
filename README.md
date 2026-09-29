@@ -149,10 +149,10 @@ offer. Both are available at the same time and never use the microphone concurre
 - **Goal:** `text`.
 - **Feedback:** `remaining`: seconds of playback left.
 - **Result:** `success`, `message`. Unlike `/tts_service`, which returns as soon as
-  playback starts, the action finishes when playback really ends (exact duration for the
-  local TTS; estimated from the text for the cloud one unless `soundfile` is installed).
-- **Cancel:** stops the audio through `sound_play` (not possible with `play_sound:=false`,
-  where the audio is sent to another device).
+  playback starts, the action finishes when playback really ends (exact duration, read
+  from the generated WAV).
+- **Cancel:** stops the audio (not possible with `play_sound:=false`, where the audio is
+  sent to another device).
 
 ```bash
 ros2 action send_goal --feedback /stt_action simple_hri_interfaces/action/Listen "{max_wait: 8.0}"

@@ -1,8 +1,6 @@
 from launch import LaunchDescription
 from launch_ros.actions import Node
-from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument, OpaqueFunction, GroupAction
-from launch.launch_description_sources import AnyLaunchDescriptionSource
-from launch_ros.substitutions import FindPackageShare
+from launch.actions import DeclareLaunchArgument, OpaqueFunction, GroupAction
 from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
@@ -25,10 +23,10 @@ def generate_launch_description():
         description='Language code for TTS service (e.g., en_US, es_ES)'
     )
 
-    sound_play_arg = DeclareLaunchArgument(
-        'start_sound_play',
-        default_value='true',
-        description='Set to "true" to use sound_play for audio output'
+    audio_player_arg = DeclareLaunchArgument(
+        'audio_player',
+        default_value='',
+        description='Command used to play audio (e.g. "aplay -q", "pw-play"). Empty = auto'
     )
 
     def start_interaction_services(context):
@@ -36,6 +34,7 @@ def generate_launch_description():
         if LaunchConfiguration('run_interaction_services').perform(context) == 'true':
 
             language = LaunchConfiguration('tts_lang').perform(context)
+            audio_player = LaunchConfiguration('audio_player').perform(context)
             
             tts_speaks_val = LaunchConfiguration('tts_speaks').perform(context)
             play_sound_param = (tts_speaks_val.lower() == 'true')
@@ -54,7 +53,8 @@ def generate_launch_description():
                     output='screen',
                     parameters=[
                         {'language': language},
-                        {'play_sound': play_sound_param} 
+                        {'play_sound': play_sound_param},
+                        {'audio_player': audio_player}
                     ]
                 ),
                 Node(
@@ -76,6 +76,7 @@ def generate_launch_description():
     def start_audio_services(context):
 
         if LaunchConfiguration('run_interaction_services').perform(context) == 'false':
+            audio_player = LaunchConfiguration('audio_player').perform(context)
             audio_nodes = GroupAction([
                 Node(
                     package='simple_hri',
@@ -87,23 +88,11 @@ def generate_launch_description():
                     package='simple_hri',
                     executable='audio_file_player',
                     name='audio_file_player_node',
-                    output='screen'
+                    output='screen',
+                    parameters=[{'audio_player': audio_player}]
                 )
             ])
             return [audio_nodes]
-        return []
-    
-
-    def start_sound_play(context):
-        if LaunchConfiguration('start_sound_play').perform(context) == 'true':
-            sound_play_nodes = GroupAction([
-                IncludeLaunchDescription(
-                    AnyLaunchDescriptionSource([
-                        FindPackageShare('sound_play'), '/launch/soundplay_node.launch.xml'
-                    ])
-                )
-            ])
-            return [sound_play_nodes]
         return []
     
     ld = LaunchDescription()
@@ -111,10 +100,9 @@ def generate_launch_description():
     ld.add_action(run_interaction_arg)
     ld.add_action(tts_speaks_arg_decl)
     ld.add_action(tts_lang_arg)
-    ld.add_action(sound_play_arg)
+    ld.add_action(audio_player_arg)
 
     ld.add_action(OpaqueFunction(function=start_interaction_services))
     ld.add_action(OpaqueFunction(function=start_audio_services))
-    ld.add_action(OpaqueFunction(function=start_sound_play))
     
     return ld

@@ -15,8 +15,6 @@
   <exec_depend>rclpy</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>std_srvs</exec_depend>
-  <exec_depend>sound_play</exec_depend>
-  <exec_depend>sound_play_msgs</exec_depend>
   <exec_depend>simple_hri_interfaces</exec_depend>
   <exec_depend>audio_send_interfaces</exec_depend>
 
