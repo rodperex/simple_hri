@@ -3,6 +3,9 @@ sounddevice>=0.4.8
 webrtcvad-wheels>=2.0.11.post1
 openai-whisper>=20230314
 numba>=0.67.0
+# numba fails to import with the coverage 7.4 of Ubuntu 24.04 (python3-coverage),
+# visible from virtual environments created with --system-site-packages
+coverage>=7.6
 scipy>=1.10.0
 openai>=1.32.0
 google-cloud-texttospeech>=2.16.0
