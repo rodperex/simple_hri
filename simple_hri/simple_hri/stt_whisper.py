@@ -34,12 +34,17 @@ class STTService(Node):
         super().__init__("stt_service_node")
         
         import os
-        self.get_logger().info(f'⏳ Cargando modelo Whisper ({MODEL_NAME})...')
+        # Bigger models transcribe better, but are slower without a GPU
+        self.declare_parameter('model', MODEL_NAME)
+        self.declare_parameter('language', 'es')  # Language spoken: es, en...
+        self.language = self.get_parameter('language').get_parameter_value().string_value
+        model_name = self.get_parameter('model').get_parameter_value().string_value
+        self.get_logger().info(f'⏳ Cargando modelo Whisper ({model_name})...')
         # Buscar directorio models/ en la jerarquía o usar variable de entorno
         # Usar siempre ./models relativo al current working directory
         whisper_cache_dir = os.path.abspath(os.path.join(os.getcwd(), 'models'))
         os.makedirs(whisper_cache_dir, exist_ok=True)
-        self.whisper_model = whisper.load_model(MODEL_NAME, download_root=whisper_cache_dir)
+        self.whisper_model = whisper.load_model(model_name, download_root=whisper_cache_dir)
         
         # Servicio y Publisher
         self.srv = self.create_service(SetBool, "stt_service", self.stt_callback)
@@ -180,11 +185,11 @@ class STTService(Node):
 
         self.get_logger().info("🧠 Procesando con Whisper...")
 
-        # 'fp16=False' es necesario si corres en CPU. Si tienes GPU, quítalo o pon True.
+        # FP16 only on the GPU: the CPU does not support it
         result = self.whisper_model.transcribe(
             audio_float,
-            language="es",
-            fp16=False
+            language=self.language,
+            fp16=self.whisper_model.device.type == 'cuda'
         )
 
         text = result["text"].strip()

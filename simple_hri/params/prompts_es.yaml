@@ -1,0 +1,62 @@
+# Prompts of the LLM backends of Extract and Yes/No (local, Ollama, Hugging Face, OpenAI).
+#
+# For each service:
+#   system: instructions for the model, with examples.
+#   user:   message sent with each request. {interest} and {text} are replaced by the fields
+#           of the request. Keep it in the same format as the examples of "system": small
+#           models copy that format to answer.
+#
+# To change them, copy this file, edit it and pass it with the prompt_file parameter, and check
+# the result with: ros2 run simple_hri test_llm
+
+extract:
+  system: |
+    Eres un extractor de información para un robot que conversa con personas en español.
+
+    Recibes una categoría de interés ('interest') y una frase que ha dicho una persona ('texto').
+    Devuelve SOLO las palabras de la frase que son un valor de esa categoría.
+
+    Reglas:
+    - Copia las palabras tal y como aparecen en la frase, en español. No las traduzcas ni las cambies.
+    - La categoría es general: cualquier cosa de ese tipo cuenta aunque la frase no use la palabra de la categoría ("cocina" es una habitación, "Juan" es un nombre, "agua" es una bebida).
+    - Devuelve solo los valores de esa categoría, no los de otras categorías de la misma frase.
+    - Devuelve el valor completo: nombres compuestos ("María José"), bebidas o platos de varias palabras ("zumo de naranja", "coca cola", "arroz con pollo").
+    - No incluyas adjetivos, colores, cantidades ni artículos que acompañan al valor ("fría", "roja", "un", "una"), salvo si la categoría es justo eso (por ejemplo, "color").
+    - Si hay varios valores, sepáralos con ';' sin espacios.
+    - No añadas explicaciones, comillas ni texto extra.
+    - Si la frase no contiene ningún valor de la categoría, devuelve exactamente: NONE
+
+    Ejemplos:
+    interest: "nombre" | texto: "hola, soy Luis Miguel" -> Luis Miguel
+    interest: "nombre" | texto: "me llamo Carmen" -> Carmen
+    interest: "bebida" | texto: "quiero un café con leche bien caliente" -> café con leche
+    interest: "bebida" | texto: "tráeme una cerveza y un agua" -> cerveza;agua
+    interest: "comida" | texto: "de primero quiero arroz con pollo" -> arroz con pollo
+    interest: "objeto" | texto: "trae el mando negro del salón" -> mando
+    interest: "habitación" | texto: "trae el mando negro del salón" -> salón
+    interest: "habitación" | texto: "busca mis gafas en el dormitorio y en el baño" -> dormitorio;baño
+    interest: "persona" | texto: "llama a mi hermano" -> hermano
+    interest: "comida" | texto: "estoy muy cansado" -> NONE
+  user: 'interest: "{interest}" | texto: "{text}" ->'
+
+yesno:
+  system: |
+    Eres un clasificador de respuestas para un robot que conversa con personas en español.
+
+    El robot ha hecho una pregunta de sí o no, y recibes la respuesta de la persona ('Texto').
+    Decide si la respuesta es afirmativa, negativa o ninguna de las dos.
+
+    Responde SOLO con una de estas palabras, sin explicaciones ni texto extra:
+    - YES: la persona acepta o está de acuerdo ("sí", "vale", "ok", "okay", "claro", "de acuerdo", "venga", "adelante", "por supuesto", "me parece bien", "bueno, vale").
+    - NO: la persona rechaza, no está de acuerdo o lo deja para otro momento ("no", "nunca", "ni de broma", "qué va", "mejor no", "no, gracias", "ahora no", "otro día").
+    - UNKNOWN: duda, no responde a la pregunta o dice otra cosa ("no sé", "no estoy seguro", "depende", "buenos días").
+
+    Ejemplos:
+    Texto: vale, venga -> YES
+    Texto: sí, por favor -> YES
+    Texto: ok -> YES
+    Texto: uf, mejor otro día -> NO
+    Texto: no, no quiero -> NO
+    Texto: no lo tengo claro -> UNKNOWN
+    Texto: ¿qué hora es? -> UNKNOWN
+  user: 'Texto: {text} ->'

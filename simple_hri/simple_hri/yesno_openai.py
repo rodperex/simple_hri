@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import os
-from ament_index_python import get_package_share_directory
 import rclpy
 import wave
 import numpy as np
@@ -11,6 +10,7 @@ from rclpy.node import Node
 from std_msgs.msg import String
 from openai import OpenAI
 from simple_hri_interfaces.srv import YesNo  # Asegúrate de tener este servicio definido
+from simple_hri import prompts
 import time
 
 # Parámetros
@@ -25,13 +25,13 @@ class YesNoService(Node):
     def __init__(self):
         super().__init__("yesno_service_node")
 
-        package_name = 'simple_hri'
-        package_share_directory = get_package_share_directory(package_name)
-        
-        self.declare_parameter("prompt_file", "yesno_prompt_es.txt")
-
-        self.prompt_file = self.base_frame = self.get_parameter("prompt_file").get_parameter_value().string_value
-        self.prompt_file = os.path.join(package_share_directory + "/params/", self.prompt_file)
+        self.declare_parameter("prompt_file", prompts.PROMPT_FILE)
+        self.prompt = prompts.load_prompt(
+            self.get_parameter("prompt_file").get_parameter_value().string_value, 'yesno')
+        self.system_prompt = self.prompt.system
+        self.get_logger().info(f'Prompt loaded from {self.prompt.path}')
+        self.declare_parameter("model", "gpt-4.1-mini")
+        self.model = self.get_parameter("model").get_parameter_value().string_value
 
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
@@ -45,27 +45,24 @@ class YesNoService(Node):
 
 
         self.srv = self.create_service(YesNo, "yesno_service", self.yesno_callback)
+        self.pub = self.create_publisher(String, "/yesno_result", 10)
 
         self.get_logger().info('✅ YesNoService inicializado')
     
     def extract_yesno_from_text(self,text: str) -> str:
         
-        with open(self.prompt_file, 'r') as f:
-            prompt_system = f.read()
-    
-
-        prompt_user = f"""Texto: {text}"""
+        prompt_user = self.prompt.user(text=text)
 
         response = self.client.responses.create(
-            model="gpt-4.1-mini",  # modelo rápido y barato
+            model=self.model,  # gpt-4.1-mini by default: fast and cheap
             input=[
-                {"role": "system", "content": prompt_system},
+                {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": prompt_user},
             ],
         )
 
-        extracted = response.output_text.strip()
-        return extracted
+        # YES, NO or UNKNOWN, as the other Yes/No backends
+        return prompts.parse_yesno(response.output_text)
 
     def yesno_callback(self, sRequest, sResponse):
 
@@ -75,9 +72,10 @@ class YesNoService(Node):
             resp = self.extract_yesno_from_text(self.text)
             self.get_logger().info(f'✅ Extraído: {resp}')
 
-            # Publicar en el topic /extracted_text
+            # Publish on /yesno_result, as the other Yes/No backends
             msg = String()
             msg.data = resp
+            self.pub.publish(msg)
 
             # Responder al servicio con el texto extraído
             sResponse.result = resp

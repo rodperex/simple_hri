@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import os
-from ament_index_python import get_package_share_directory
 import rclpy
 import wave
 import numpy as np
@@ -11,6 +10,7 @@ from rclpy.node import Node
 from std_msgs.msg import String
 from openai import OpenAI
 from simple_hri_interfaces.srv import Extract  # Asegúrate de tener este servicio definido
+from simple_hri import prompts
 import time
 
 # Parámetros
@@ -25,13 +25,13 @@ class ExtractService(Node):
     def __init__(self):
         super().__init__("extract_service_node")
 
-        package_name = 'simple_hri'
-        package_share_directory = get_package_share_directory(package_name)
-        
-        self.declare_parameter("prompt_file", "basic_prompt_es.txt")
-
-        self.prompt_file = self.base_frame = self.get_parameter("prompt_file").get_parameter_value().string_value
-        self.prompt_file = os.path.join(package_share_directory + "/params/", self.prompt_file)
+        self.declare_parameter("prompt_file", prompts.PROMPT_FILE)
+        self.prompt = prompts.load_prompt(
+            self.get_parameter("prompt_file").get_parameter_value().string_value, 'extract')
+        self.system_prompt = self.prompt.system
+        self.get_logger().info(f'Prompt loaded from {self.prompt.path}')
+        self.declare_parameter("model", "gpt-4.1-mini")
+        self.model = self.get_parameter("model").get_parameter_value().string_value
 
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
@@ -56,35 +56,17 @@ class ExtractService(Node):
     def extract_interest_from_text(self, interest: str, text: str) -> str:
         """Usa un modelo de lenguaje para extraer lo relevante según el 'interest'."""
 
-        # prompt_system = (
-        #     "Eres un extractor de información.\n\n"
-        #     "Recibes una categoría de interés ('interest') y una frase del usuario.\n"
-        #     "Tu tarea es extraer SOLO la palabra o frase más relevante relacionada con "
-        #     "esa categoría.\n"
-        #     "Si hay mśas de una palabra o frase relevante, devuelve todas separadas por el caracter ';'.\n"
-        #     "No añadas explicaciones ni texto extra.\n"
-        #     "Si no hay nada relevante devuelve exactamente: NONE."
-        # )
-
-        
-        with open(self.prompt_file, 'r') as f:
-            prompt_system = f.read()
-    
-
-        prompt_user = f"""interest: "{interest}"
-                        texto: "{text}"
-                        respuesta:"""
+        prompt_user = self.prompt.user(interest=interest, text=text)
 
         response = self.client.responses.create(
-            model="gpt-4.1-mini",  # modelo rápido y barato
+            model=self.model,  # gpt-4.1-mini by default: fast and cheap
             input=[
-                {"role": "system", "content": prompt_system},
+                {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": prompt_user},
             ],
         )
 
-        extracted = response.output_text.strip()
-        return extracted
+        return prompts.clean_extracted(response.output_text)
 
     def extract_callback(self, sRequest, sResponse):
         if not sRequest.interest:

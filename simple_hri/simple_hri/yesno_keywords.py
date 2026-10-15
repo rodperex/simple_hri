@@ -15,11 +15,13 @@
 # limitations under the License.
 
 import os
+import re
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
-from ament_index_python import get_package_share_directory
 from huggingface_hub import InferenceClient
+
+from simple_hri import prompts
 
 try:
     from simple_hri_interfaces.srv import YesNo
@@ -29,29 +31,46 @@ except ImportError:
         pass
 
 
+# Word lists of each language: (doubt, negative, affirmative). Doubt is checked first because
+# it contains "no" ("no sé"), and a negation wins over an affirmative word ("claro que no").
+KEYWORDS = {
+    'es': (
+        ['no sé', 'no se', 'no lo sé', 'no lo se', 'no estoy seguro', 'no estoy segura',
+         'depende', 'no lo tengo claro'],
+        ['no', 'nunca', 'jamás', 'jamas', 'negativo', 'tampoco', 'qué va', 'que va',
+         'ni de broma', 'ni hablar'],
+        ['sí', 'si', 'vale', 'ok', 'okay', 'claro', 'correcto', 'afirmativo', 'efectivamente',
+         'por supuesto', 'desde luego', 'de acuerdo', 'venga', 'adelante', 'me parece bien',
+         'perfecto', 'genial'],
+    ),
+    'en': (
+        ["i don't know", 'i dont know', 'not sure', "i'm not sure", 'it depends', 'depends'],
+        ['no', 'nope', 'nah', 'never', 'not', 'no way', "don't", 'negative', 'better not'],
+        ['yes', 'yeah', 'yep', 'ok', 'okay', 'sure', 'of course', 'alright', 'all right',
+         'absolutely', 'agreed', 'fine', 'go ahead', 'sounds good', 'correct', 'right',
+         'definitely', 'great', 'perfect'],
+    ),
+}
+
+
 class YesNoServiceLocal(Node):
     def __init__(self):
         super().__init__("yesno_service_node")
 
-        self.declare_parameter("prompt_file", "yesno_prompt_es.txt")
+        self.declare_parameter("prompt_file", prompts.PROMPT_FILE)
         self.declare_parameter("model_id", "Qwen/Qwen2.5-Coder-32B-Instruct")
         self.declare_parameter("use_llm", False)  # By default, use simple pattern matching
-
-        package_name = 'simple_hri'
-        param_file_name = self.get_parameter("prompt_file").get_parameter_value().string_value
         self.use_llm = self.get_parameter("use_llm").get_parameter_value().bool_value
+        self.declare_parameter("language", "es")  # Word lists: es or en
+        self.language = self.get_parameter("language").get_parameter_value().string_value
+        if self.language not in KEYWORDS:
+            self.get_logger().warn(f"⚠️ No word lists for '{self.language}': using 'es'")
+            self.language = "es"
 
-        if param_file_name.startswith("/"):
-            self.prompt_path = param_file_name
-        else:
-            try:
-                package_share_directory = get_package_share_directory(package_name)
-                self.prompt_path = os.path.join(package_share_directory, "params", param_file_name)
-            except Exception:
-                self.get_logger().warn(f"⚠️ Could not find package share directory. Using relative path.")
-                self.prompt_path = os.path.join("params", param_file_name)
-
-        self.system_prompt = self._load_prompt_content()
+        self.prompt = prompts.load_prompt(
+            self.get_parameter("prompt_file").get_parameter_value().string_value, 'yesno')
+        self.system_prompt = self.prompt.system
+        self.get_logger().info(f"📄 Prompt loaded from {self.prompt.path}")
 
         self.hf_token = os.getenv("HF_TOKEN")
         self.model_id = self.get_parameter("model_id").get_parameter_value().string_value
@@ -82,21 +101,6 @@ class YesNoServiceLocal(Node):
 
         self.pub = self.create_publisher(String, "/yesno_result", 10)
 
-    def _load_prompt_content(self) -> str:
-        try:
-            with open(self.prompt_path, 'r') as f:
-                content = f.read()
-            self.get_logger().info(f"📄 System Prompt loaded from: {self.prompt_path}")
-            return content
-        except FileNotFoundError:
-            self.get_logger().warn(f"⚠️ Prompt file not found: {self.prompt_path}. Using default prompt.")
-            return (
-                "You are a yes/no detector assistant. Analyze the given text and respond with ONLY 'YES' or 'NO'. "
-                "If the text contains affirmative words (yes, yeah, sure, correct, ok, affirmative, si, vale, etc.), respond 'YES'. "
-                "If the text contains negative words (no, nope, negative, not, nunca, etc.), respond 'NO'. "
-                "If uncertain, respond 'UNKNOWN'."
-            )
-
     def extract_yesno_from_text(self, text: str) -> str:
         """Use Hugging Face to detect yes/no from text, with fallback to pattern matching."""
         
@@ -105,8 +109,7 @@ class YesNoServiceLocal(Node):
             return self._simple_yesno_detection(text)
 
         # Try LLM approach first
-        prompt_user = f"""Text: "{text}"
-Response:"""
+        prompt_user = self.prompt.user(text=text)
 
         try:
             messages = [
@@ -121,42 +124,27 @@ Response:"""
                 temperature=0.1
             )
             
-            result = completion.choices[0].message.content.strip().upper()
-            
-            # Validate response
-            if "YES" in result or "SÍ" in result or "SI" in result:
-                return "YES"
-            elif "NO" in result:
-                return "NO"
-            else:
-                return "UNKNOWN"
+            # The previous substring check took "UNKNOWN" (it contains "NO") as NO
+            return prompts.parse_yesno(completion.choices[0].message.content)
             
         except Exception as e:
             self.get_logger().warn(f"⚠️ LLM inference failed: {e}. Using fallback detection.")
             return self._simple_yesno_detection(text)
 
     def _simple_yesno_detection(self, text: str) -> str:
-        """Fallback method using simple pattern matching."""
-        text_lower = text.lower().strip()
-        
-        # Affirmative patterns (Spanish and English)
-        yes_patterns = ['sí', 'si', 'yes', 'yeah', 'yep', 'sure', 'ok', 'okay', 
-                       'vale', 'claro', 'correcto', 'afirmativo', 'efectivamente',
-                       'por supuesto', 'desde luego']
-        
-        # Negative patterns (Spanish and English)
-        no_patterns = ['no', 'nope', 'nunca', 'jamás', 'negativo', 'never',
-                      'not', 'nah', 'tampoco']
-        
-        # Check for explicit matches
-        for yes_word in yes_patterns:
-            if yes_word in text_lower:
-                return "YES"
-        
-        for no_word in no_patterns:
-            if no_word in text_lower:
-                return "NO"
-        
+        """Fallback method using simple pattern matching on whole words."""
+        text_lower = ' ' + ' '.join(re.findall(r"[a-záéíóúüñ']+", text.lower())) + ' '
+
+        def has(patterns):
+            return any(f' {p} ' in text_lower for p in patterns)
+
+        doubt, no_patterns, yes_patterns = KEYWORDS[self.language]
+        if has(doubt):
+            return "UNKNOWN"
+        if has(no_patterns):
+            return "NO"
+        if has(yes_patterns):
+            return "YES"
         return "UNKNOWN"
 
     def yesno_callback(self, request, response):

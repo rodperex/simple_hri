@@ -4,8 +4,9 @@ import os
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
-from ament_index_python import get_package_share_directory
 from huggingface_hub import InferenceClient
+
+from simple_hri import prompts
 
 try:
     from simple_hri_interfaces.srv import Extract
@@ -18,23 +19,13 @@ class ExtractService(Node):
     def __init__(self):
         super().__init__("extract_service_node")
 
-        self.declare_parameter("prompt_file", "basic_prompt_es.txt")
+        self.declare_parameter("prompt_file", prompts.PROMPT_FILE)
         self.declare_parameter("model_id", "meta-llama/Meta-Llama-3-8B-Instruct")
 
-        package_name = 'simple_hri'
-        param_file_name = self.get_parameter("prompt_file").get_parameter_value().string_value
-
-        if param_file_name.startswith("/"):
-            self.prompt_path = param_file_name
-        else:
-            try:
-                pkg_share = get_package_share_directory(package_name)
-                self.prompt_path = os.path.join(pkg_share, "params", param_file_name)
-            except Exception:
-                self.get_logger().warn(f"Paquete '{package_name}' no encontrado. Usando ruta local relativa.")
-                self.prompt_path = os.path.join("params", param_file_name)
-
-        self.system_prompt = self._load_prompt_content()
+        self.prompt = prompts.load_prompt(
+            self.get_parameter("prompt_file").get_parameter_value().string_value, 'extract')
+        self.system_prompt = self.prompt.system
+        self.get_logger().info(f"📄 Prompt loaded from {self.prompt.path}")
 
         self.hf_token = os.getenv("HF_TOKEN")
 
@@ -59,27 +50,12 @@ class ExtractService(Node):
 
         self.pub = self.create_publisher(String, "/extracted_text", 10)
 
-    def _load_prompt_content(self) -> str:
-        try:
-            with open(self.prompt_path, 'r') as f:
-                content = f.read()
-            self.get_logger().info(f"📄 System Prompt cargado desde: {self.prompt_path}")
-            return content
-        except FileNotFoundError:
-            self.get_logger().warn(f"⚠️ No se encontró {self.prompt_path}. Usando prompt por defecto.")
-            return (
-                "Eres un asistente extractor. Extrae SOLO la información solicitada en 'interest' "
-                "del texto dado. Si hay varios, sepáralos con ';'. Si no hay nada, responde 'NONE'."
-            )
-
     def extract_interest_from_text(self, interest: str, text: str) -> str:
         """Usa Hugging Face para extraer información."""
         if not self.client:
             return "ERROR_NO_TOKEN"
 
-        prompt_user = f"""interest: "{interest}"
-            text: "{text}"
-            response:"""
+        prompt_user = self.prompt.user(interest=interest, text=text)
 
         try:
             response = self.client.chat_completion(
@@ -93,13 +69,7 @@ class ExtractService(Node):
                 stream=False
             )
 
-            extracted = response.choices[0].message.content.strip()
-            
-            # Limpieza básica por si el modelo es "charlatán"
-            if "Here is the" in extracted or "Respuesta:" in extracted:
-                extracted = extracted.split(":")[-1].strip()
-                
-            return extracted
+            return prompts.clean_extracted(response.choices[0].message.content)
             
         except Exception as e:
             self.get_logger().error(f"Error llamando a Hugging Face API: {e}")

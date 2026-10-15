@@ -41,6 +41,9 @@ class STTService(Node):
     def __init__(self):
         super().__init__("stt_service_node")
 
+        self.declare_parameter('language', 'es')  # Language spoken: es, en...
+        self.language = self.get_parameter('language').get_parameter_value().string_value
+
         self.api_key = os.getenv("OPENAI_API_KEY")
         if not self.api_key:
             self.get_logger().error("❌ No se encontró la clave de API de OpenAI. Exporta OPENAI_API_KEY antes de ejecutar.")
@@ -153,7 +156,7 @@ class STTService(Node):
             response = client.audio.transcriptions.create(
                 model="whisper-1",
                 file=audio_file,
-                language="es",
+                language=self.language,
             )
 
         transcribed_text = response.text

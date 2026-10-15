@@ -45,6 +45,8 @@ class TTSService(Node):
 
         self.declare_parameter('play_sound', True) # If True, play the audio here. If False, publish audio data.
         self.declare_parameter('audio_player', '') # Command used to play (e.g. 'aplay -q', 'pw-play'). '' = auto
+        self.declare_parameter('language', 'en')  # Language of the voice: es or en
+        self.declare_parameter('voice', '')  # Google voice (e.g. 'es-ES-Neural2-A'). '' = from language
 
         self.play_sound = self.get_parameter('play_sound').get_parameter_value().bool_value
         audio_player = self.get_parameter('audio_player').get_parameter_value().string_value
@@ -57,14 +59,15 @@ class TTSService(Node):
         # Instantiates a google tts client
         self.client = texttospeech.TextToSpeechClient()
 
+        # Male voice of each language. List of voices: https://cloud.google.com/text-to-speech/docs/voices
+        default_voices = {'es': 'es-ES-Neural2-F', 'en': 'en-US-Neural2-D'}
+        language = self.get_parameter('language').get_parameter_value().string_value
+        voice = self.get_parameter('voice').get_parameter_value().string_value
+        if not voice:
+            voice = default_voices.get(language, default_voices['en'])
         self.voice = texttospeech.VoiceSelectionParams(
-            #language_code="IT-IT", name="it-IT-Neural2-C"  # A female, C male
-            language_code="en-US", name="en-US-Neural2-D"  # C female
-            #language_code="en-US", name="en-US-Studio-Q"  # male, O female
-            # language_code="en-US", name="en-US-Journey-D"
-            # language_code="es-ES", name="es-ES-Journey-D"
-
-        )
+            language_code='-'.join(voice.split('-')[:2]), name=voice)
+        self.get_logger().info(f'Google voice: {voice}')
 
         self.volume = 0.9 # from 0.1 to 1.0
 
