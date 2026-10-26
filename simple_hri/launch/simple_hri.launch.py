@@ -18,6 +18,7 @@
   ros2 launch simple_hri simple_hri.launch.py language:=en
   ros2 launch simple_hri simple_hri.launch.py backend:=ollama ollama_model:=gemma3:4b
   ros2 launch simple_hri simple_hri.launch.py backend:=cloud tts:=mms
+  ros2 launch simple_hri simple_hri.launch.py stt:=faster_whisper tts:=piper
 """
 
 from launch import LaunchDescription
@@ -35,8 +36,8 @@ BACKENDS = {
 
 # Options accepted by the per-service arguments
 OPTIONS = {
-    'stt': ['whisper', 'openai'],
-    'tts': ['mms', 'google'],
+    'stt': ['whisper', 'faster_whisper', 'openai'],
+    'tts': ['mms', 'piper', 'google'],
     'extract': ['local', 'ollama', 'hf', 'openai'],
     'yesno': ['local', 'keywords', 'ollama', 'hf', 'openai'],
 }
@@ -48,8 +49,10 @@ ARGUMENTS = [
     ('backend', 'local', 'Set of backends: local, ollama, hf (Hugging Face, paid) or cloud '
      '(OpenAI + Google, paid)'),
     ('language', 'es', 'Language of the conversation: es or en'),
-    ('stt', '', 'STT backend, overrides the one of "backend": whisper (local) or openai'),
-    ('tts', '', 'TTS backend, overrides the one of "backend": mms (local) or google'),
+    ('stt', '', 'STT backend, overrides the one of "backend": whisper (local), faster_whisper '
+     '(local) or openai'),
+    ('tts', '', 'TTS backend, overrides the one of "backend": mms (local), piper (local) or '
+     'google'),
     ('extract', '', 'Extract backend, overrides the one of "backend": local, ollama, hf, openai'),
     ('yesno', '', 'Yes/No backend, overrides the one of "backend": local, keywords, ollama, hf, '
      'openai'),
@@ -62,7 +65,10 @@ ARGUMENTS = [
     ('audio_player', '', 'Command used to play audio (e.g. "aplay -q", "pw-play"). Empty = auto'),
     ('prompt_file', '', 'Prompts of Extract and Yes/No: a file in params/ or an absolute path. '
      'Empty = prompts_<language>.yaml'),
-    ('whisper_model', 'tiny', 'Local Whisper model: tiny, base, small, medium, large'),
+    ('whisper_model', 'tiny', 'Local Whisper model: tiny, base, small, medium, large '
+     '(also of faster_whisper, which accepts large-v3, distil-large-v3...)'),
+    ('piper_voice', '', 'Piper voice (a file name in models/ or an absolute path to its .onnx). '
+     'Empty = es_ES-sharvard-medium or en_US-lessac-medium, from language'),
     ('local_model', 'Qwen/Qwen2.5-1.5B-Instruct', 'Hugging Face model of the local LLM'),
     ('use_gpu', 'true', 'Run MMS-TTS and the local LLM on the GPU (CUDA), if there is one. '
      'Whisper uses it whenever it is available'),
@@ -119,9 +125,13 @@ def launch_nodes(context):
     # Parameters of each node
     params = {
         'stt_whisper': {'model': arg['whisper_model'], 'language': language},
+        'stt_faster_whisper': {'model': arg['whisper_model'], 'language': language,
+                               'device': 'auto' if use_gpu else 'cpu'},
         'stt_openai': {'language': language},
         'tts_mms': {'lang_code': arg['tts_lang'] or LANGUAGES[language], 'use_gpu': use_gpu,
                     'play_sound': play_sound, 'audio_player': audio_player},
+        'tts_piper': {'lang_code': language, 'voice': arg['piper_voice'],
+                      'play_sound': play_sound, 'audio_player': audio_player},
         'tts_google': {'language': language, 'play_sound': play_sound,
                        'audio_player': audio_player},
         'extract_ollama': ollama,

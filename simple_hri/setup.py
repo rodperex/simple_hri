@@ -25,8 +25,10 @@ setup(
         'console_scripts': [
             # One node per service and backend: <service>_<backend>
             'stt_whisper = simple_hri.stt_whisper:main',
+            'stt_faster_whisper = simple_hri.stt_faster_whisper:main',
             'stt_openai = simple_hri.stt_openai:main',
             'tts_mms = simple_hri.tts_mms:main',
+            'tts_piper = simple_hri.tts_piper:main',
             'tts_google = simple_hri.tts_google:main',
             'llm_local = simple_hri.llm_local:main',  # Extract and Yes/No with one local model
             'extract_local = simple_hri.llm_local:main_extract',

@@ -12,3 +12,6 @@ google-cloud-texttospeech>=2.16.0
 transformers>=4.57.0,<5
 torch>=2.5.0
 huggingface-hub>=0.20.0
+# faster_whisper (STT) and piper (TTS) backends; Silero VAD comes from torch.hub
+faster-whisper>=1.1.0
+piper-tts>=1.3.0

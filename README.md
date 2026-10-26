@@ -10,9 +10,10 @@ launch file starts the services with the backend you choose.
 ## Features
 
 - **STT:** listens to the microphone, detects voice (VAD), records until silence and
-  transcribes it. Backends: local Whisper or the OpenAI API.
+  transcribes it. Backends: local Whisper, local faster-whisper (with Silero VAD) or the
+  OpenAI API.
 - **TTS:** synthesizes a text and plays it (or sends it to another device). Backends: local
-  `facebook/mms-tts-*` models or Google Cloud.
+  `facebook/mms-tts-*` models, local Piper voices or Google Cloud.
 - **Extract:** given a text and an *interest* (e.g. "bebida"), returns only the relevant
   words. Backends: local LLM, Ollama, Hugging Face or OpenAI.
 - **Yes/No:** tells whether an answer is affirmative, negative or neither. Backends: local
@@ -98,6 +99,10 @@ same with every backend, so your client does not change.
 Whisper and MMS-TTS always run on your computer: Ollama only serves language models, it
 cannot transcribe or synthesize audio.
 
+Two more local engines can replace Whisper and MMS-TTS with any backend: faster-whisper for
+STT (`stt:=faster_whisper`) and Piper for TTS (`tts:=piper`); see
+[faster-whisper and Piper](#faster-whisper-and-piper).
+
 Each service can also use a backend different from the one of `backend`, with the arguments
 `stt`, `tts`, `extract` and `yesno` (see [Mixing backends](#mixing-backends)).
 
@@ -110,8 +115,8 @@ terminal where you launch** (or in your `~/.bashrc`). The nodes read them at sta
 | --- | --- | --- |
 | `backend` | `local` | `local`, `ollama`, `hf` or `cloud` |
 | `language` | `es` | Language of the conversation: `es` (Spanish) or `en` (English). It sets the language of STT, the TTS voice, the prompts and the word lists |
-| `stt` | from `backend` | `whisper` (local) or `openai` |
-| `tts` | from `backend` | `mms` (local) or `google` |
+| `stt` | from `backend` | `whisper` (local), `faster_whisper` (local) or `openai` |
+| `tts` | from `backend` | `mms` (local), `piper` (local) or `google` |
 | `extract` | from `backend` | `local`, `ollama`, `hf` or `openai` |
 | `yesno` | from `backend` | `local`, `keywords` (word lists, no model), `ollama`, `hf` or `openai` |
 | `run_interaction_services` | `true` | `true`: STT, TTS, Extract and Yes/No. `false`: only the audio forwarding nodes (see [Audio forwarding](#audio-forwarding)) |
@@ -119,7 +124,8 @@ terminal where you launch** (or in your `~/.bashrc`). The nodes read them at sta
 | `tts_lang` | from `language` | MMS-TTS model: `facebook/mms-tts-<tts_lang>` (`spa`, `eng`, `fra`...). Google TTS ignores it |
 | `prompt_file` | `prompts_<language>.yaml` | Prompts of Extract and Yes/No: a file in `params/` or an absolute path (see [Prompts](#prompts)) |
 | `audio_player` | `''` | Command used to play audio (`aplay -q`, `pw-play`, `paplay`). Empty = the first one installed |
-| `whisper_model` | `tiny` | Local Whisper model: `tiny`, `base`, `small`, `medium`, `large`. Bigger is better and slower |
+| `whisper_model` | `tiny` | Local Whisper model: `tiny`, `base`, `small`, `medium`, `large`. Bigger is better and slower. faster-whisper uses it too (and accepts `large-v3`, `distil-large-v3`...) |
+| `piper_voice` | `''` | Piper voice: a voice of the [Piper catalog](https://huggingface.co/rhasspy/piper-voices) (`es_ES-davefx-medium`), a file name in `models/` or an absolute path to its `.onnx`. Empty = `es_ES-sharvard-medium` or `en_US-lessac-medium`, from `language` |
 | `local_model` | `Qwen/Qwen2.5-1.5B-Instruct` | Hugging Face model of the local LLM (Extract and Yes/No) |
 | `use_gpu` | `true` | Run MMS-TTS and the local LLM on the GPU (CUDA) if there is one; otherwise they run on the CPU. Whisper uses the GPU whenever it is available |
 | `ollama_host` | `''` | Ollama server (`localhost:11434`, `server`, `http://server:11434`). Empty = `OLLAMA_HOST` or `localhost:11434` |
@@ -132,9 +138,10 @@ terminal where you launch** (or in your `~/.bashrc`). The nodes read them at sta
 the language and the backend chosen for each service
 (`simple_hri (es): stt=whisper, tts=mms, extract=local, yesno=local`).
 
-The local models (Whisper, MMS-TTS, the local LLM) are downloaded the first time to a
-`models/` directory **in the current working directory**: launch always from the same
-directory, or they are downloaded again.
+The local models (Whisper, faster-whisper, MMS-TTS, Piper voices, the local LLM) are
+downloaded the first time to a `models/` directory **in the current working directory**:
+launch always from the same directory, or they are downloaded again. Silero VAD (used by
+faster-whisper) is downloaded by `torch.hub` to `~/.cache/torch/hub`.
 
 ### Language
 
@@ -294,6 +301,63 @@ ros2 launch simple_hri simple_hri.launch.py backend:=cloud
 
 If `OPENAI_API_KEY` is missing, the OpenAI nodes exit at startup; if the Google credentials
 are missing, `tts_google` fails at startup.
+
+### faster-whisper and Piper
+
+Two local engines, from the speech stack of
+[DialoStack](https://github.com/aquintan4/DialoStack), with the same services and actions as
+the others, so clients do not change:
+
+| | `stt:=faster_whisper` | `tts:=piper` |
+| --- | --- | --- |
+| Node | `stt_faster_whisper` | `tts_piper` |
+| Engine | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (Whisper on CTranslate2, int8) with [Silero VAD](https://github.com/snakers4/silero-vad) | [Piper](https://github.com/OHF-Voice/piper1-gpl) voices (ONNX) |
+| Compared with | `stt_whisper`: the same models, faster (it also runs well on a CPU), and a neural voice detector that copes better with noise | `tts_mms`: more natural voices, a CPU is enough (the GPU stays free), the voice loads in about a second |
+
+```bash
+ros2 launch simple_hri simple_hri.launch.py stt:=faster_whisper tts:=piper
+ros2 launch simple_hri simple_hri.launch.py backend:=ollama stt:=faster_whisper tts:=piper whisper_model:=small
+ros2 launch simple_hri simple_hri.launch.py tts:=piper piper_voice:=es_ES-davefx-medium
+```
+
+**Install** their Python packages (in `requirements.txt`): `pip install faster-whisper piper-tts`
+(PyTorch, already required, runs Silero VAD).
+
+**Models.** Nothing to download by hand: the first launch downloads them.
+- The faster-whisper model (`whisper_model`) goes to `models/`.
+- Silero VAD goes to `~/.cache/torch/hub` (needs Internet the first time).
+- The Piper voice (`<voice>.onnx` and `<voice>.onnx.json`) goes to `models/`, or to
+  `SIMPLE_HRI_MODELS_DIR` if it is set. A voice can also be copied there by hand, e.g. to use
+  one outside the catalog or on a robot without Internet.
+
+On a computer without Internet, download the voices beforehand:
+
+```bash
+python3 -c "from simple_hri.tts_piper import download_voice, voice_path; \
+  [download_voice(voice_path(v, 'models')) for v in ('es_ES-sharvard-medium', 'en_US-lessac-medium')]"
+```
+
+**Speed.** On a laptop with an RTX A500 (4 GB), for a 6-7 s sentence: Piper synthesizes it in
+0.15 s on the CPU (MMS-TTS: 0.17-0.19 s on the GPU, 1.4 s on the CPU); faster-whisper `small`
+transcribes it in 0.36-0.41 s on the GPU and 1.1-1.3 s on the CPU (Whisper `small`:
+0.50-0.62 s on the GPU, 2.0-3.6 s on the CPU), with the same text.
+
+**Parameters** of the nodes (besides those of [Nodes](#nodes)):
+
+| Node | Parameter | Default | Description |
+| --- | --- | --- | --- |
+| `stt_faster_whisper` | `device` | `auto` | `auto` (the GPU if there is one), `cuda` or `cpu` |
+| | `compute_type` | `auto` | `int8_float32` on the GPU, `int8` on the CPU |
+| | `vad_threshold` | `0.5` | Silero speech probability that counts as voice |
+| | `grace_period` | `0.8` | Seconds of silence that end the phrase |
+| | `max_phrase_secs` | `15.0` | Longest phrase recorded (s) |
+| | `pre_record` | `0.5` | Seconds kept before the voice, so that the first syllable is not cut |
+| | `input_device` | `''` | Microphone (`sounddevice`); empty = the default one |
+| | `audio_file` | `''` | Tests only: a WAV file read instead of the microphone, at real-time pace |
+| `tts_piper` | `voice` | `''` | As `piper_voice` above |
+| | `models_dir` | `''` | Where the voices are; empty = `SIMPLE_HRI_MODELS_DIR` or `./models` |
+| | `download` | `true` | Download a missing voice of the catalog |
+| | `length_scale` | `1.0` | Below 1 speaks faster, above 1 slower |
 
 ### Mixing backends
 
@@ -688,8 +752,10 @@ One node per service and backend, named `<service>_<backend>`:
 | Node | Service | Backend | Needs | Parameters |
 | --- | --- | --- | --- | --- |
 | `stt_whisper` | STT | Whisper, local (on the GPU if PyTorch sees CUDA) | - | `model` (`tiny`), `language` (`es`) |
+| `stt_faster_whisper` | STT | faster-whisper with Silero VAD, local (on the GPU if CTranslate2 sees CUDA) | - | `model` (`tiny`), `language` (`es`), `device`, `compute_type` (see [faster-whisper and Piper](#faster-whisper-and-piper)) |
 | `stt_openai` | STT | OpenAI `whisper-1` | `OPENAI_API_KEY` + credits | `language` (`es`) |
 | `tts_mms` | TTS | `facebook/mms-tts-<lang_code>`, local | - | `lang_code`, `volume`, `use_gpu`, `play_sound`, `audio_player` |
+| `tts_piper` | TTS | Piper voice, local (CPU) | - | `lang_code` (`es`/`en`), `voice`, `models_dir`, `volume`, `length_scale`, `play_sound`, `audio_player` |
 | `tts_google` | TTS | Google Cloud TTS | `GOOGLE_APPLICATION_CREDENTIALS` + billing | `language` (`en`), `voice` (from `language`), `play_sound`, `audio_player` |
 | `llm_local` | Extract and Yes/No | LLM run with transformers (`Qwen/Qwen2.5-1.5B-Instruct`), loaded once for both services. `extract_local` and `yesno_local` run it with only one service | - | `model_id`, `use_gpu`, `prompt_file`, `extract`, `yesno` |
 | `extract_ollama` | Extract | Ollama | Ollama server | `host`, `model`, `keep_alive`, `prompt_file`, `timeout`, `preload` |
@@ -826,6 +892,8 @@ simple_hri/
 ├── simple_hri/                   # Main Python package
 │   ├── simple_hri/               # Nodes: <service>_<backend>.py
 │   │   ├── llm_local.py          # Local LLM: Extract and Yes/No with one model
+│   │   ├── stt_faster_whisper.py # STT with faster-whisper and Silero VAD
+│   │   ├── tts_piper.py          # TTS with Piper voices (and download_voice)
 │   │   ├── prompts.py            # Prompt loading and answer cleaning shared by the LLM backends
 │   │   ├── ollama_llm.py         # Ollama client shared by the *_ollama nodes
 │   │   └── test_llm.py           # Test of the Extract and Yes/No services
