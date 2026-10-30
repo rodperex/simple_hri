@@ -97,6 +97,11 @@ class PiperTTSService(Node):
         self.declare_parameter('download', True)  # download a missing voice of the catalog
         self.declare_parameter('volume', 1.0)
         self.declare_parameter('length_scale', 1.0)  # < 1 speaks faster, > 1 slower
+        # A speaker of a multi-speaker voice (e.g. es_ES-sharvard-medium: 0 or 1); -1 = the voice's
+        self.declare_parameter('speaker', -1)
+        # Variation of the voice (expressiveness) and of the phoneme durations; < 0 = the voice's
+        self.declare_parameter('noise_scale', -1.0)
+        self.declare_parameter('noise_w_scale', -1.0)
         self.declare_parameter('use_gpu', False)  # needs onnxruntime-gpu
         self.declare_parameter('play_sound', True)  # False: send the file to /trigger_audio_send
         self.declare_parameter('audio_player', '')  # e.g. 'aplay -q', 'pw-play'. '' = auto
@@ -107,6 +112,9 @@ class PiperTTSService(Node):
         models_dir = p('models_dir').value or default_models_dir()
         self.volume = p('volume').value
         self.length_scale = p('length_scale').value
+        self.speaker = p('speaker').value if p('speaker').value >= 0 else None
+        self.noise_scale = p('noise_scale').value if p('noise_scale').value >= 0 else None
+        self.noise_w_scale = p('noise_w_scale').value if p('noise_w_scale').value >= 0 else None
         self.play_sound = p('play_sound').value
 
         path = voice_path(voice, models_dir)
@@ -150,7 +158,9 @@ class PiperTTSService(Node):
 
     def synthesize(self, text):
         """The audio of the text: (int16 samples, sample rate)."""
-        config = SynthesisConfig(length_scale=self.length_scale, volume=self.volume)
+        config = SynthesisConfig(speaker_id=self.speaker, length_scale=self.length_scale,
+                                 noise_scale=self.noise_scale, noise_w_scale=self.noise_w_scale,
+                                 volume=self.volume)
         chunks = list(self.voice.synthesize(text, syn_config=config))
         if not chunks:
             raise RuntimeError('Piper produced no audio')

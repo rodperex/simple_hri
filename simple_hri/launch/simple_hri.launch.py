@@ -69,6 +69,8 @@ ARGUMENTS = [
      '(also of faster_whisper, which accepts large-v3, distil-large-v3...)'),
     ('piper_voice', '', 'Piper voice (a file name in models/ or an absolute path to its .onnx). '
      'Empty = es_ES-sharvard-medium or en_US-lessac-medium, from language'),
+    ('piper_speaker', '-1', 'Speaker of a multi-speaker Piper voice (e.g. 0 or 1 of '
+     "es_ES-sharvard-medium). -1 = the voice's default"),
     ('local_model', 'Qwen/Qwen2.5-1.5B-Instruct', 'Hugging Face model of the local LLM'),
     ('use_gpu', 'true', 'Run MMS-TTS and the local LLM on the GPU (CUDA), if there is one. '
      'Whisper uses it whenever it is available'),
@@ -131,6 +133,7 @@ def launch_nodes(context):
         'tts_mms': {'lang_code': arg['tts_lang'] or LANGUAGES[language], 'use_gpu': use_gpu,
                     'play_sound': play_sound, 'audio_player': audio_player},
         'tts_piper': {'lang_code': language, 'voice': arg['piper_voice'],
+                      'speaker': int(arg['piper_speaker']),
                       'play_sound': play_sound, 'audio_player': audio_player},
         'tts_google': {'language': language, 'play_sound': play_sound,
                        'audio_player': audio_player},

@@ -126,6 +126,7 @@ terminal where you launch** (or in your `~/.bashrc`). The nodes read them at sta
 | `audio_player` | `''` | Command used to play audio (`aplay -q`, `pw-play`, `paplay`). Empty = the first one installed |
 | `whisper_model` | `tiny` | Local Whisper model: `tiny`, `base`, `small`, `medium`, `large`. Bigger is better and slower. faster-whisper uses it too (and accepts `large-v3`, `distil-large-v3`...) |
 | `piper_voice` | `''` | Piper voice: a voice of the [Piper catalog](https://huggingface.co/rhasspy/piper-voices) (`es_ES-davefx-medium`), a file name in `models/` or an absolute path to its `.onnx`. Empty = `es_ES-sharvard-medium` or `en_US-lessac-medium`, from `language` |
+| `piper_speaker` | `-1` | Speaker of a multi-speaker Piper voice (`es_ES-sharvard-medium` has 0 and 1). `-1` = the voice's default |
 | `local_model` | `Qwen/Qwen2.5-1.5B-Instruct` | Hugging Face model of the local LLM (Extract and Yes/No) |
 | `use_gpu` | `true` | Run MMS-TTS and the local LLM on the GPU (CUDA) if there is one; otherwise they run on the CPU. Whisper uses the GPU whenever it is available |
 | `ollama_host` | `''` | Ollama server (`localhost:11434`, `server`, `http://server:11434`). Empty = `OLLAMA_HOST` or `localhost:11434` |
@@ -358,6 +359,9 @@ transcribes it in 0.36-0.41 s on the GPU and 1.1-1.3 s on the CPU (Whisper `smal
 | | `models_dir` | `''` | Where the voices are; empty = `SIMPLE_HRI_MODELS_DIR` or `./models` |
 | | `download` | `true` | Download a missing voice of the catalog |
 | | `length_scale` | `1.0` | Below 1 speaks faster, above 1 slower |
+| | `speaker` | `-1` | As `piper_speaker` above |
+| | `noise_scale` | `-1.0` | Variation of the voice (more expressive above the voice's value, flatter below). Negative = the voice's value |
+| | `noise_w_scale` | `-1.0` | Variation of the phoneme durations (rhythm). Negative = the voice's value |
 
 ### Mixing backends
 
@@ -755,7 +759,7 @@ One node per service and backend, named `<service>_<backend>`:
 | `stt_faster_whisper` | STT | faster-whisper with Silero VAD, local (on the GPU if CTranslate2 sees CUDA) | - | `model` (`tiny`), `language` (`es`), `device`, `compute_type` (see [faster-whisper and Piper](#faster-whisper-and-piper)) |
 | `stt_openai` | STT | OpenAI `whisper-1` | `OPENAI_API_KEY` + credits | `language` (`es`) |
 | `tts_mms` | TTS | `facebook/mms-tts-<lang_code>`, local | - | `lang_code`, `volume`, `use_gpu`, `play_sound`, `audio_player` |
-| `tts_piper` | TTS | Piper voice, local (CPU) | - | `lang_code` (`es`/`en`), `voice`, `models_dir`, `volume`, `length_scale`, `play_sound`, `audio_player` |
+| `tts_piper` | TTS | Piper voice, local (CPU) | - | `lang_code` (`es`/`en`), `voice`, `speaker`, `models_dir`, `volume`, `length_scale`, `noise_scale`, `noise_w_scale`, `play_sound`, `audio_player` |
 | `tts_google` | TTS | Google Cloud TTS | `GOOGLE_APPLICATION_CREDENTIALS` + billing | `language` (`en`), `voice` (from `language`), `play_sound`, `audio_player` |
 | `llm_local` | Extract and Yes/No | LLM run with transformers (`Qwen/Qwen2.5-1.5B-Instruct`), loaded once for both services. `extract_local` and `yesno_local` run it with only one service | - | `model_id`, `use_gpu`, `prompt_file`, `extract`, `yesno` |
 | `extract_ollama` | Extract | Ollama | Ollama server | `host`, `model`, `keep_alive`, `prompt_file`, `timeout`, `preload` |
