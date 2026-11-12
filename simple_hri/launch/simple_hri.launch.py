@@ -17,22 +17,23 @@
 Each service has a backend. "backend" chooses all of them at once:
 
   backend   STT                TTS             Extract and Yes/No
-  local     Whisper            MMS-TTS         Qwen2.5-1.5B (transformers)
-  ollama    Whisper            MMS-TTS         ollama_model, served by Ollama
-  hf        Whisper            MMS-TTS         hf_model, Hugging Face API (paid)
+  local     Whisper            Piper           Qwen2.5-1.5B (transformers)
+  ollama    Whisper            Piper           ollama_model, served by Ollama
+  hf        Whisper            Piper           hf_model, Hugging Face API (paid)
   cloud     OpenAI whisper-1   Google TTS      openai_model, OpenAI API (paid)
 
 and stt, tts, extract and yesno change the backend of one service.
 
 The local models run where *_device says: cpu, or gpu (the NVIDIA GPU if there is one,
-otherwise the CPU). By default the STT runs on the CPU, so that the GPU is left to
-MMS-TTS and the LLM: a 4 GB GPU does not fit the three. Piper always runs on the CPU, and
-Ollama decides by itself where its model runs. When the launch starts, it prints which
+otherwise the CPU). By default the STT runs on the CPU, so that the GPU is left to the
+LLM: a 4 GB GPU does not fit Whisper small and the LLM together. Piper always runs on the
+CPU, MMS-TTS (tts:=mms) where tts_device says, and Ollama decides by itself where its
+model runs. When the launch starts, it prints which
 node, model and device each service uses.
 
   ros2 launch simple_hri simple_hri.launch.py                      # local, Spanish
   ros2 launch simple_hri simple_hri.launch.py language:=en
-  ros2 launch simple_hri simple_hri.launch.py stt:=faster_whisper tts:=piper
+  ros2 launch simple_hri simple_hri.launch.py stt:=faster_whisper tts:=mms
   ros2 launch simple_hri simple_hri.launch.py backend:=ollama      # needs ollama serve
   ros2 launch simple_hri simple_hri.launch.py llm_device:=cpu      # no GPU at all
   ros2 launch simple_hri simple_hri.launch.py backend:=cloud tts:=mms
@@ -43,11 +44,12 @@ from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-# Backend of each service for each value of "backend"
+# Backend of each service for each value of "backend". Piper: more natural voices than
+# MMS-TTS, and fast on the CPU
 BACKENDS = {
-    'local': {'stt': 'whisper', 'tts': 'mms', 'extract': 'local', 'yesno': 'local'},
-    'ollama': {'stt': 'whisper', 'tts': 'mms', 'extract': 'ollama', 'yesno': 'ollama'},
-    'hf': {'stt': 'whisper', 'tts': 'mms', 'extract': 'hf', 'yesno': 'hf'},
+    'local': {'stt': 'whisper', 'tts': 'piper', 'extract': 'local', 'yesno': 'local'},
+    'ollama': {'stt': 'whisper', 'tts': 'piper', 'extract': 'ollama', 'yesno': 'ollama'},
+    'hf': {'stt': 'whisper', 'tts': 'piper', 'extract': 'hf', 'yesno': 'hf'},
     'cloud': {'stt': 'openai', 'tts': 'google', 'extract': 'openai', 'yesno': 'openai'},
 }
 

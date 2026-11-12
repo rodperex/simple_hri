@@ -91,16 +91,16 @@ same with every backend, so your client does not change.
 
 | `backend` | STT | TTS | Extract | Yes/No | Needs | Cost |
 | --- | --- | --- | --- | --- | --- | --- |
-| [`local`](#local) (default) | Whisper | MMS-TTS | Small LLM (transformers) | The same LLM | Nothing | Free |
-| [`ollama`](#ollama) | Whisper | MMS-TTS | Ollama | Ollama | An Ollama server, on this computer or another one | Free |
-| [`hf`](#hugging-face) | Whisper | MMS-TTS | Hugging Face API | Hugging Face API | `HF_TOKEN` | Paid: Hugging Face credits |
+| [`local`](#local) (default) | Whisper | Piper | Small LLM (transformers) | The same LLM | Nothing | Free |
+| [`ollama`](#ollama) | Whisper | Piper | Ollama | Ollama | An Ollama server, on this computer or another one | Free |
+| [`hf`](#hugging-face) | Whisper | Piper | Hugging Face API | Hugging Face API | `HF_TOKEN` | Paid: Hugging Face credits |
 | [`cloud`](#cloud) | OpenAI API | Google Cloud | OpenAI API | OpenAI API | `OPENAI_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS` | Paid: OpenAI credits, Google Cloud billing |
 
-Whisper and MMS-TTS always run on your computer: Ollama only serves language models, it
+Whisper and Piper always run on your computer: Ollama only serves language models, it
 cannot transcribe or synthesize audio.
 
-Two more local engines can replace Whisper and MMS-TTS with any backend: faster-whisper for
-STT (`stt:=faster_whisper`) and Piper for TTS (`tts:=piper`); see
+Two more local engines can be used with any backend: faster-whisper for STT
+(`stt:=faster_whisper`) and MMS-TTS for TTS (`tts:=mms`, the default before Piper); see
 [faster-whisper and Piper](#faster-whisper-and-piper).
 
 Each service can also use a backend different from the one of `backend`, with the arguments
@@ -142,14 +142,14 @@ where the local models run, and audio and servers.
 **3. Where the local models run**
 
 Each one is `cpu` or `gpu`; `gpu` means the NVIDIA GPU if there is one, otherwise the CPU.
-By default the STT runs on the CPU so that the GPU is left to MMS-TTS and the local LLM: a
-4 GB GPU does not fit the three. Piper always runs on the CPU, and Ollama decides by itself
+By default the STT runs on the CPU so that the GPU is left to the local LLM (and to MMS-TTS,
+if you choose it): a 4 GB GPU does not fit Whisper `small` and the LLM together. Piper always runs on the CPU, and Ollama decides by itself
 where its model runs.
 
 | Argument | Default | Description |
 | --- | --- | --- |
 | `stt_device` | `cpu` | Whisper and faster-whisper. On the CPU, `small` takes about 2 s per phrase |
-| `tts_device` | `gpu` | MMS-TTS |
+| `tts_device` | `gpu` | MMS-TTS (`tts:=mms`). Piper always runs on the CPU |
 | `llm_device` | `gpu` | The local LLM (`backend:=local`). On the CPU it takes several seconds per request |
 | `use_gpu` | `true` | `false`: every local model on the CPU, whatever the `*_device` arguments say |
 
@@ -201,7 +201,7 @@ ros2 launch simple_hri simple_hri.launch.py
 | Service | Node | Model |
 | --- | --- | --- |
 | STT | `stt_whisper` | Whisper `small`, on the CPU (`stt_device`) |
-| TTS | `tts_mms` | `facebook/mms-tts-spa` (`eng` with `language:=en`), on the GPU if there is one (`tts_device`) |
+| TTS | `tts_piper` | Piper voice `es_ES-sharvard-medium` (`en_US-lessac-medium` with `language:=en`), on the CPU |
 | Extract | `llm_local` | `Qwen/Qwen2.5-1.5B-Instruct`, on the GPU if there is one (`llm_device`) |
 | Yes/No | `llm_local` | The same model: `llm_local` serves both services, so the model is loaded once |
 
@@ -249,7 +249,7 @@ ros2 launch simple_hri simple_hri.launch.py backend:=ollama
 | Service | Node | Model |
 | --- | --- | --- |
 | STT | `stt_whisper` | Whisper `small` |
-| TTS | `tts_mms` | `facebook/mms-tts-spa` (`eng` with `language:=en`) |
+| TTS | `tts_piper` | Piper voice `es_ES-sharvard-medium` (`en_US-lessac-medium` with `language:=en`) |
 | Extract | `extract_ollama` | `ollama_model` (`qwen2.5:7b`) |
 | Yes/No | `yesno_ollama` | `ollama_model` (`qwen2.5:7b`) |
 
@@ -280,7 +280,7 @@ ros2 launch simple_hri simple_hri.launch.py backend:=hf
 | Service | Node | Model |
 | --- | --- | --- |
 | STT | `stt_whisper` | Whisper `small` |
-| TTS | `tts_mms` | `facebook/mms-tts-spa` (`eng` with `language:=en`) |
+| TTS | `tts_piper` | Piper voice `es_ES-sharvard-medium` (`en_US-lessac-medium` with `language:=en`) |
 | Extract | `extract_hf` | `hf_model` (remote) |
 | Yes/No | `yesno_hf` | `hf_model` (remote) |
 
@@ -342,18 +342,20 @@ are missing, `tts_google` fails at startup.
 
 Two local engines, from the speech stack of
 [DialoStack](https://github.com/aquintan4/DialoStack), with the same services and actions as
-the others, so clients do not change:
+the others, so clients do not change. Piper is the default TTS of the `local`, `ollama` and
+`hf` backends; faster-whisper is chosen with `stt:=faster_whisper`:
 
-| | `stt:=faster_whisper` | `tts:=piper` |
+| | `stt:=faster_whisper` | `tts:=piper` (default) |
 | --- | --- | --- |
 | Node | `stt_faster_whisper` | `tts_piper` |
 | Engine | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (Whisper on CTranslate2, int8) with [Silero VAD](https://github.com/snakers4/silero-vad) | [Piper](https://github.com/OHF-Voice/piper1-gpl) voices (ONNX) |
 | Compared with | `stt_whisper`: the same models, faster (it also runs well on a CPU), and a neural voice detector that copes better with noise | `tts_mms`: more natural voices, a CPU is enough (the GPU stays free), the voice loads in about a second |
 
 ```bash
-ros2 launch simple_hri simple_hri.launch.py stt:=faster_whisper tts:=piper
-ros2 launch simple_hri simple_hri.launch.py backend:=ollama stt:=faster_whisper tts:=piper whisper_model:=small
-ros2 launch simple_hri simple_hri.launch.py tts:=piper piper_voice:=es_ES-davefx-medium
+ros2 launch simple_hri simple_hri.launch.py stt:=faster_whisper
+ros2 launch simple_hri simple_hri.launch.py backend:=ollama stt:=faster_whisper
+ros2 launch simple_hri simple_hri.launch.py piper_voice:=es_ES-davefx-medium     # another voice
+ros2 launch simple_hri simple_hri.launch.py tts:=mms                             # MMS-TTS
 ```
 
 **Install** their Python packages (in `requirements.txt`): `pip install faster-whisper piper-tts`
@@ -908,10 +910,11 @@ ros2 service list | grep -E "(stt|tts|extract|yesno)"
 
 ### `CUDA out of memory`
 
-The local models do not fit in the GPU. On a 4 GB GPU, `backend:=local` takes about 3.7 GB (LLM
-3.1 GB, Whisper and MMS-TTS 0.3 GB each), so a bigger `whisper_model` or another program using
-the GPU makes it fail. Use `use_gpu:=false` (MMS-TTS and the LLM on the CPU, slow), a smaller
-`local_model`, or move the LLM to Ollama on another machine (`extract:=ollama yesno:=ollama`).
+The local models do not fit in the GPU. With the defaults, only the local LLM uses the GPU
+(about 3.1 GB). `stt_device:=gpu` adds Whisper (about 1.5 GB with `small`) and `tts:=mms`
+adds MMS-TTS (about 0.3 GB), which do not fit in a 4 GB GPU with the LLM; another program
+using the GPU can also make it fail. Use `llm_device:=cpu` or `use_gpu:=false` (slow), a
+smaller `local_model`, or move the LLM to Ollama (`backend:=ollama`).
 
 ### STT does not hear anything ("No se detectó audio o timeout")
 
