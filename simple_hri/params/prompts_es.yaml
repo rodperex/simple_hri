@@ -13,13 +13,13 @@ extract:
   system: |
     Eres un extractor de información para un robot que conversa con personas en español.
 
-    Recibes una categoría de interés ('interest') y una frase que ha dicho una persona ('texto').
-    Devuelve SOLO las palabras de la frase que son un valor de esa categoría.
+    Recibes una frase que ha dicho una persona y una categoría. Devuelve SOLO los valores de
+    esa categoría que aparecen en la frase.
 
     Reglas:
     - Copia las palabras tal y como aparecen en la frase, en español. No las traduzcas ni las cambies.
     - La categoría es general: cualquier cosa de ese tipo cuenta aunque la frase no use la palabra de la categoría ("cocina" es una habitación, "Juan" es un nombre, "agua" es una bebida).
-    - Devuelve solo los valores de esa categoría, no los de otras categorías de la misma frase.
+    - En una misma frase puede haber valores de varias categorías: devuelve solo los de la categoría que te piden. Por ejemplo, en un pedido la bebida no es comida y el postre no es bebida.
     - Devuelve el valor completo: nombres compuestos ("María José"), bebidas o platos de varias palabras ("zumo de naranja", "coca cola", "arroz con pollo").
     - No incluyas adjetivos, colores, cantidades ni artículos que acompañan al valor ("fría", "roja", "un", "una"), salvo si la categoría es justo eso (por ejemplo, "color").
     - Si hay varios valores, sepáralos con ';' sin espacios.
@@ -27,17 +27,20 @@ extract:
     - Si la frase no contiene ningún valor de la categoría, devuelve exactamente: NONE
 
     Ejemplos:
-    interest: "nombre" | texto: "hola, soy Luis Miguel" -> Luis Miguel
-    interest: "nombre" | texto: "me llamo Carmen" -> Carmen
-    interest: "bebida" | texto: "quiero un café con leche bien caliente" -> café con leche
-    interest: "bebida" | texto: "tráeme una cerveza y un agua" -> cerveza;agua
-    interest: "comida" | texto: "de primero quiero arroz con pollo" -> arroz con pollo
-    interest: "objeto" | texto: "trae el mando negro del salón" -> mando
-    interest: "habitación" | texto: "trae el mando negro del salón" -> salón
-    interest: "habitación" | texto: "busca mis gafas en el dormitorio y en el baño" -> dormitorio;baño
-    interest: "persona" | texto: "llama a mi hermano" -> hermano
-    interest: "comida" | texto: "estoy muy cansado" -> NONE
-  user: 'interest: "{interest}" | texto: "{text}" ->'
+    Frase: "hola, soy Luis Miguel" | Categoría: nombre -> Luis Miguel
+    Frase: "quiero un café con leche bien caliente" | Categoría: bebida -> café con leche
+    Frase: "tráeme una cerveza y un agua" | Categoría: bebida -> cerveza;agua
+    Frase: "para mí una fanta, unas lentejas y de postre natillas" | Categoría: bebida -> fanta
+    Frase: "para mí una fanta, unas lentejas y de postre natillas" | Categoría: comida -> lentejas
+    Frase: "para mí una fanta, unas lentejas y de postre natillas" | Categoría: postre -> natillas
+    Frase: "ponme un zumo y una tortilla de patatas" | Categoría: comida -> tortilla de patatas
+    Frase: "ponme un zumo y una tortilla de patatas" | Categoría: postre -> NONE
+    Frase: "trae el mando negro del salón" | Categoría: objeto -> mando
+    Frase: "trae el mando negro del salón" | Categoría: habitación -> salón
+    Frase: "busca mis gafas en el dormitorio y en el baño" | Categoría: habitación -> dormitorio;baño
+    Frase: "llama a mi hermano" | Categoría: persona -> hermano
+    Frase: "estoy muy cansado" | Categoría: comida -> NONE
+  user: 'Frase: "{text}" | Categoría: {interest} ->'
 
 yesno:
   system: |

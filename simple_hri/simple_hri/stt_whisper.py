@@ -8,6 +8,7 @@ import numpy as np
 import sounddevice as sd
 import webrtcvad
 import time
+import torch
 import whisper
 import collections
 import threading
@@ -27,7 +28,7 @@ SILENCE_DURATION = 1.0  # Segundos de silencio para cortar después de hablar
 PRE_RECORD_BUFFER = 0.5 # Segundos de audio a guardar antes de que se detecte voz
 MAX_WAIT_SECONDS = 10.0 # Tiempo máximo esperando a que alguien empiece a hablar
 
-MODEL_NAME = "tiny" # "tiny", "base", "small", "medium", "large"
+MODEL_NAME = "small" # "tiny", "base", "small", "medium", "large"; tiny garbles Spanish phrases
 
 class STTService(Node):
     def __init__(self):
@@ -37,6 +38,8 @@ class STTService(Node):
         # Bigger models transcribe better, but are slower without a GPU
         self.declare_parameter('model', MODEL_NAME)
         self.declare_parameter('language', 'es')  # Language spoken: es, en...
+        # cpu, cuda or auto. cpu by default: it leaves the GPU to the TTS and the LLM
+        self.declare_parameter('device', 'cpu')
         self.language = self.get_parameter('language').get_parameter_value().string_value
         model_name = self.get_parameter('model').get_parameter_value().string_value
         self.get_logger().info(f'⏳ Cargando modelo Whisper ({model_name})...')
@@ -44,7 +47,16 @@ class STTService(Node):
         # Usar siempre ./models relativo al current working directory
         whisper_cache_dir = os.path.abspath(os.path.join(os.getcwd(), 'models'))
         os.makedirs(whisper_cache_dir, exist_ok=True)
-        self.whisper_model = whisper.load_model(model_name, download_root=whisper_cache_dir)
+        device = self.get_parameter('device').get_parameter_value().string_value
+        if device in ('auto', 'cuda') and not torch.cuda.is_available():
+            if device == 'cuda':
+                self.get_logger().warn('No CUDA GPU: Whisper runs on the CPU.')
+            device = 'cpu'
+        elif device == 'auto':
+            device = 'cuda'
+        self.get_logger().info(f'Whisper on {device}')
+        self.whisper_model = whisper.load_model(model_name, device=device,
+                                                download_root=whisper_cache_dir)
         
         # Servicio y Publisher
         self.srv = self.create_service(SetBool, "stt_service", self.stt_callback)

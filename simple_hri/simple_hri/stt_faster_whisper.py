@@ -107,9 +107,10 @@ class STTFasterWhisper(Node):
     def __init__(self):
         super().__init__('stt_service_node')
 
-        self.declare_parameter('model', 'tiny')  # tiny, base, small, medium, large-v3...
+        # tiny, base, small, medium, large-v3...; tiny garbles Spanish phrases
+        self.declare_parameter('model', 'small')
         self.declare_parameter('language', 'es')  # Language spoken: es, en...
-        self.declare_parameter('device', 'auto')  # auto, cuda or cpu
+        self.declare_parameter('device', 'cpu')  # cpu, cuda or auto; cpu leaves the GPU to the LLM
         self.declare_parameter('compute_type', 'auto')  # auto, int8, int8_float32, float16...
         self.declare_parameter('cpu_threads', 4)
         self.declare_parameter('input_device', '')  # sounddevice input; '' = default

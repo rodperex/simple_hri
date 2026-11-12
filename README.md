@@ -111,33 +111,68 @@ terminal where you launch** (or in your `~/.bashrc`). The nodes read them at sta
 
 ### Launch arguments
 
+They are grouped as in the launch file: which backend each service uses, which models,
+where the local models run, and audio and servers.
+
+**1. Backend of each service**
+
 | Argument | Default | Description |
 | --- | --- | --- |
-| `backend` | `local` | `local`, `ollama`, `hf` or `cloud` |
+| `backend` | `local` | `local`, `ollama`, `hf` or `cloud` (see [Backends](#backends)) |
 | `language` | `es` | Language of the conversation: `es` (Spanish) or `en` (English). It sets the language of STT, the TTS voice, the prompts and the word lists |
 | `stt` | from `backend` | `whisper` (local), `faster_whisper` (local) or `openai` |
 | `tts` | from `backend` | `mms` (local), `piper` (local) or `google` |
 | `extract` | from `backend` | `local`, `ollama`, `hf` or `openai` |
 | `yesno` | from `backend` | `local`, `keywords` (word lists, no model), `ollama`, `hf` or `openai` |
-| `run_interaction_services` | `true` | `true`: STT, TTS, Extract and Yes/No. `false`: only the audio forwarding nodes (see [Audio forwarding](#audio-forwarding)) |
-| `tts_speaks` | `true` | `true`: TTS plays the audio on this computer. `false`: it sends the file to `/trigger_audio_send` |
+
+**2. Models**
+
+| Argument | Default | Description |
+| --- | --- | --- |
+| `whisper_model` | `small` | Local Whisper model: `tiny`, `base`, `small`, `medium`, `large`. Bigger is better and slower; `tiny` garbles Spanish phrases from a laptop microphone. faster-whisper uses it too (and accepts `large-v3`, `distil-large-v3`...) |
 | `tts_lang` | from `language` | MMS-TTS model: `facebook/mms-tts-<tts_lang>` (`spa`, `eng`, `fra`...). Google TTS ignores it |
-| `prompt_file` | `prompts_<language>.yaml` | Prompts of Extract and Yes/No: a file in `params/` or an absolute path (see [Prompts](#prompts)) |
-| `audio_player` | `''` | Command used to play audio (`aplay -q`, `pw-play`, `paplay`). Empty = the first one installed |
-| `whisper_model` | `tiny` | Local Whisper model: `tiny`, `base`, `small`, `medium`, `large`. Bigger is better and slower. faster-whisper uses it too (and accepts `large-v3`, `distil-large-v3`...) |
 | `piper_voice` | `''` | Piper voice: a voice of the [Piper catalog](https://huggingface.co/rhasspy/piper-voices) (`es_ES-davefx-medium`), a file name in `models/` or an absolute path to its `.onnx`. Empty = `es_ES-sharvard-medium` or `en_US-lessac-medium`, from `language` |
 | `piper_speaker` | `-1` | Speaker of a multi-speaker Piper voice (`es_ES-sharvard-medium` has 0 and 1). `-1` = the voice's default |
 | `local_model` | `Qwen/Qwen2.5-1.5B-Instruct` | Hugging Face model of the local LLM (Extract and Yes/No) |
-| `use_gpu` | `true` | Run MMS-TTS and the local LLM on the GPU (CUDA) if there is one; otherwise they run on the CPU. Whisper uses the GPU whenever it is available |
-| `ollama_host` | `''` | Ollama server (`localhost:11434`, `server`, `http://server:11434`). Empty = `OLLAMA_HOST` or `localhost:11434` |
-| `ollama_model` | `qwen2.5:3b` | Ollama model for Extract and Yes/No. It must be downloaded on the server (`ollama pull`) |
-| `ollama_keep_alive` | `''` | How long Ollama keeps the model loaded (`1h`, `-1` = forever). Empty = server default (5 minutes) |
+| `ollama_model` | `qwen2.5:7b` | Ollama model for Extract and Yes/No. It must be downloaded on the server (`ollama pull`). The smallest that separates several categories in one sentence (see [Choosing a model](#2-download-a-model)) |
 | `hf_model` | `meta-llama/Meta-Llama-3-8B-Instruct` | Hugging Face model for Extract and Yes/No |
 | `openai_model` | `gpt-4.1-mini` | OpenAI model for Extract and Yes/No |
+| `prompt_file` | `prompts_<language>.yaml` | Prompts of Extract and Yes/No: a file in `params/` or an absolute path (see [Prompts](#prompts)) |
 
-`ros2 launch simple_hri simple_hri.launch.py --show-args` lists them too. The launch prints
-the language and the backend chosen for each service
-(`simple_hri (es): stt=whisper, tts=mms, extract=local, yesno=local`).
+**3. Where the local models run**
+
+Each one is `cpu` or `gpu`; `gpu` means the NVIDIA GPU if there is one, otherwise the CPU.
+By default the STT runs on the CPU so that the GPU is left to MMS-TTS and the local LLM: a
+4 GB GPU does not fit the three. Piper always runs on the CPU, and Ollama decides by itself
+where its model runs.
+
+| Argument | Default | Description |
+| --- | --- | --- |
+| `stt_device` | `cpu` | Whisper and faster-whisper. On the CPU, `small` takes about 2 s per phrase |
+| `tts_device` | `gpu` | MMS-TTS |
+| `llm_device` | `gpu` | The local LLM (`backend:=local`). On the CPU it takes several seconds per request |
+| `use_gpu` | `true` | `false`: every local model on the CPU, whatever the `*_device` arguments say |
+
+**4. Audio and servers**
+
+| Argument | Default | Description |
+| --- | --- | --- |
+| `tts_speaks` | `true` | `true`: TTS plays the audio on this computer. `false`: it sends the file to `/trigger_audio_send` |
+| `audio_player` | `''` | Command used to play audio (`aplay -q`, `pw-play`, `paplay`). Empty = the first one installed |
+| `run_interaction_services` | `true` | `true`: STT, TTS, Extract and Yes/No. `false`: only the audio forwarding nodes (see [Audio forwarding](#audio-forwarding)) |
+| `ollama_host` | `''` | Ollama server (`localhost:11434`, `server`, `http://server:11434`). Empty = `OLLAMA_HOST` or `localhost:11434` |
+| `ollama_keep_alive` | `''` | How long Ollama keeps the model loaded (`1h`, `-1` = forever). Empty = server default (5 minutes) |
+
+`ros2 launch simple_hri simple_hri.launch.py --show-args` lists them too. When it starts,
+the launch prints the node, the model and the device of each service:
+
+```text
+simple_hri (es):
+  stt      stt_whisper         Whisper small                        CPU
+  tts      tts_mms             facebook/mms-tts-spa                 GPU if there is one
+  extract  llm_local           Qwen/Qwen2.5-1.5B-Instruct           GPU if there is one
+  yesno    llm_local           Qwen/Qwen2.5-1.5B-Instruct           GPU if there is one
+```
 
 The local models (Whisper, faster-whisper, MMS-TTS, Piper voices, the local LLM) are
 downloaded the first time to a `models/` directory **in the current working directory**:
@@ -165,9 +200,9 @@ ros2 launch simple_hri simple_hri.launch.py
 
 | Service | Node | Model |
 | --- | --- | --- |
-| STT | `stt_whisper` | Whisper `tiny` |
-| TTS | `tts_mms` | `facebook/mms-tts-spa` (`eng` with `language:=en`) |
-| Extract | `llm_local` | `Qwen/Qwen2.5-1.5B-Instruct` |
+| STT | `stt_whisper` | Whisper `small`, on the CPU (`stt_device`) |
+| TTS | `tts_mms` | `facebook/mms-tts-spa` (`eng` with `language:=en`), on the GPU if there is one (`tts_device`) |
+| Extract | `llm_local` | `Qwen/Qwen2.5-1.5B-Instruct`, on the GPU if there is one (`llm_device`) |
 | Yes/No | `llm_local` | The same model: `llm_local` serves both services, so the model is loaded once |
 
 **Needs:** nothing, but an NVIDIA GPU makes Extract and Yes/No much faster. The first launch
@@ -196,10 +231,10 @@ node (`llm_local`), which loads the model once: two copies would not fit in a 4 
 ros2 launch simple_hri simple_hri.launch.py yesno:=keywords   # word lists instead of the model
 ```
 
-Bigger models, if your GPU has more memory:
+Bigger models, and the STT on the GPU too, if your GPU has more memory (8 GB or more):
 
 ```bash
-ros2 launch simple_hri simple_hri.launch.py whisper_model:=small local_model:=Qwen/Qwen2.5-3B-Instruct
+ros2 launch simple_hri simple_hri.launch.py stt_device:=gpu whisper_model:=medium local_model:=Qwen/Qwen2.5-3B-Instruct
 ```
 
 ### Ollama
@@ -213,17 +248,17 @@ ros2 launch simple_hri simple_hri.launch.py backend:=ollama
 
 | Service | Node | Model |
 | --- | --- | --- |
-| STT | `stt_whisper` | Whisper `tiny` |
+| STT | `stt_whisper` | Whisper `small` |
 | TTS | `tts_mms` | `facebook/mms-tts-spa` (`eng` with `language:=en`) |
-| Extract | `extract_ollama` | `ollama_model` (`qwen2.5:3b`) |
-| Yes/No | `yesno_ollama` | `ollama_model` (`qwen2.5:3b`) |
+| Extract | `extract_ollama` | `ollama_model` (`qwen2.5:7b`) |
+| Yes/No | `yesno_ollama` | `ollama_model` (`qwen2.5:7b`) |
 
 **Needs:** an Ollama server with the model downloaded. See
 [Ollama: LLM on your GPU or on a server](#ollama-llm-on-your-gpu-or-on-a-server) to set it up.
 
 ```bash
-# Ollama on this computer, another model
-ros2 launch simple_hri simple_hri.launch.py backend:=ollama ollama_model:=gemma3:4b
+# Ollama on this computer, a smaller model (faster, but it mixes up several categories)
+ros2 launch simple_hri simple_hri.launch.py backend:=ollama ollama_model:=qwen2.5:3b
 # Ollama on a server, through an SSH tunnel (localhost:11434 is the server)
 ssh -N -L 11434:127.0.0.1:11434 user@server &
 ros2 launch simple_hri simple_hri.launch.py backend:=ollama ollama_model:=qwen2.5:14b
@@ -244,7 +279,7 @@ ros2 launch simple_hri simple_hri.launch.py backend:=hf
 
 | Service | Node | Model |
 | --- | --- | --- |
-| STT | `stt_whisper` | Whisper `tiny` |
+| STT | `stt_whisper` | Whisper `small` |
 | TTS | `tts_mms` | `facebook/mms-tts-spa` (`eng` with `language:=en`) |
 | Extract | `extract_hf` | `hf_model` (remote) |
 | Yes/No | `yesno_hf` | `hf_model` (remote) |
@@ -347,7 +382,7 @@ transcribes it in 0.36-0.41 s on the GPU and 1.1-1.3 s on the CPU (Whisper `smal
 
 | Node | Parameter | Default | Description |
 | --- | --- | --- | --- |
-| `stt_faster_whisper` | `device` | `auto` | `auto` (the GPU if there is one), `cuda` or `cpu` |
+| `stt_faster_whisper` | `device` | `cpu` | `cpu`, `cuda` or `auto` (the GPU if there is one). The launch file passes `stt_device` |
 | | `compute_type` | `auto` | `int8_float32` on the GPU, `int8` on the CPU |
 | | `vad_threshold` | `0.5` | Silero speech probability that counts as voice |
 | | `grace_period` | `0.8` | Seconds of silence that end the phrase |
@@ -397,8 +432,23 @@ ros2 run simple_hri test_llm en         # English sentences (launch with languag
 ```
 
 Use it to compare backends and models: launch `simple_hri` with one of them, run `test_llm`,
-and repeat with the next one. Results with the default prompts (October 2026), with the
-Spanish (`test_llm`) and English (`test_llm en`) sentences:
+and repeat with the next one.
+
+Extract with the current prompts (November 2026): the 20 sentences of `test_llm`, and 11
+requests on orders with a drink, a food and a dessert in the same sentence ("quiero una coca
+cola, unos macarrones y de postre un flan", asking for `bebida`, `comida` or `postre`), which
+need the model to separate the categories:
+
+| `backend` | Model | Extract es / en | Orders es / en | Time per request |
+| --- | --- | --- | --- | --- |
+| `ollama` | `qwen2.5:7b` | 20 / 20 | 11 / 11 | 1.3-2.4 s (laptop CPU) |
+| `ollama` | `qwen2.5:3b` | 14 / - | 6 / - | 1.0 s (laptop CPU) |
+| `local` | `Qwen2.5-1.5B-Instruct` | 14 / 20 | 10 / 5 | 0.3 s (4 GB laptop GPU) |
+
+With the previous prompts the small models scored better on the 20 sentences (`qwen2.5:3b`
+19, `Qwen2.5-1.5B` 16), but none of them separated the categories of an order (2-4 of 11,
+also `qwen2.5:7b`). Previous results (October 2026, previous prompts), with the Spanish
+(`test_llm`) and English (`test_llm en`) sentences:
 
 | `backend` | Model | Extract es / en | Yes/No es / en | Time per request |
 | --- | --- | --- | --- | --- |
@@ -448,7 +498,7 @@ machine. STT and TTS do not use Ollama: they always run on the computer where yo
  ┌──────────────────────────────────┐            ┌───────────────────────────────┐
  │ stt_whisper   (Whisper)          │            │ ollama serve  (port 11434)    │
  │ tts_mms       (MMS-TTS)          │   HTTP     │   └─ model on the GPU         │
- │ extract_ollama  ─────────────────┼───────────►│      (qwen2.5:3b, gemma3...)  │
+ │ extract_ollama  ─────────────────┼───────────►│      (qwen2.5:7b, gemma3...)  │
  │ yesno_ollama    ─────────────────┼───────────►│                               │
  └──────────────────────────────────┘            └───────────────────────────────┘
 ```
@@ -495,14 +545,14 @@ docker run -d --gpus=all -v ollama:/root/.ollama -p 127.0.0.1:11434:11434 \
 ```
 
 With Docker, run the `ollama` commands of the next steps inside the container:
-`docker exec -it ollama ollama pull qwen2.5:3b`.
+`docker exec -it ollama ollama pull qwen2.5:7b`.
 
 ### 2. Download a model
 
 ```bash
-ollama pull qwen2.5:3b
+ollama pull qwen2.5:7b
 ollama list                       # downloaded models
-ollama run qwen2.5:3b "Hola"      # quick test (Ctrl+D to exit)
+ollama run qwen2.5:7b "Hola"      # quick test (Ctrl+D to exit)
 ```
 
 The models are stored in `/usr/share/ollama/.ollama/models` (Linux service) and take several
@@ -515,10 +565,11 @@ with the default 4-bit quantization:
 
 | Model | GPU memory | Notes |
 | --- | --- | --- |
-| `qwen2.5:3b` (default) | ~2.5 GB | Fits in 4 GB GPUs. Good enough for names, drinks, objects |
+| `qwen2.5:3b` | ~2.5 GB | Fits in 4 GB GPUs. Good enough for one value per sentence (a name, a drink), but it mixes up the categories when a sentence has several (drink, food and dessert in one order) |
 | `llama3.2:3b` | ~2.5 GB | Alternative of the same size |
 | `gemma3:4b` | ~4 GB | Better Spanish, tight in a 4 GB GPU |
-| `qwen2.5:7b`, `llama3.1:8b` | ~5-6 GB | 8 GB GPUs |
+| `qwen2.5:7b` (default) | ~5 GB | The smallest that separates several categories in one sentence. 8 GB GPUs; on a smaller one it runs on the CPU, at about 2 s per request |
+| `llama3.1:8b` | ~6 GB | 8 GB GPUs |
 | `gemma3:12b`, `qwen2.5:14b` | ~9-10 GB | Servers, 12-16 GB GPUs |
 | `qwen2.5:32b`, `gemma3:27b` | ~20 GB | Servers, 24 GB GPUs or more |
 
@@ -532,12 +583,13 @@ With Ollama running and the model downloaded, nothing else is needed: the nodes 
 `localhost:11434` by default.
 
 ```bash
-ros2 launch simple_hri simple_hri.launch.py backend:=ollama                        # qwen2.5:3b
+ros2 launch simple_hri simple_hri.launch.py backend:=ollama                        # qwen2.5:7b
 ros2 launch simple_hri simple_hri.launch.py backend:=ollama ollama_model:=gemma3:4b
 ```
 
-Check that the model runs on the GPU: `ollama ps` must show `100% GPU` in the `PROCESSOR`
-column (`CPU/GPU` means that it does not fit). On laptops with hybrid graphics, Ollama uses
+Check where the model runs with `ollama ps` (`PROCESSOR` column): `100% GPU` is the
+fastest; `100% CPU` also works with `qwen2.5:7b` (about 2 s per request); `CPU/GPU` means
+that it does not fit in the GPU and is split, which can be slower than the CPU alone. On laptops with hybrid graphics, Ollama uses
 the NVIDIA GPU directly through CUDA, with no PRIME offload variables.
 
 ### 3b. Use Ollama on a server
@@ -627,7 +679,7 @@ Both Ollama nodes accept:
 | Parameter | Default | Description |
 | --- | --- | --- |
 | `host` | `''` | Ollama server (`server`, `server:11434`, `http://server:11434`). Empty = `OLLAMA_HOST` or `http://localhost:11434` |
-| `model` | `qwen2.5:3b` | Ollama model |
+| `model` | `qwen2.5:7b` | Ollama model |
 | `keep_alive` | `''` | How long the model stays loaded after each request (`10m`, `1h`, `-1`). Empty = server default |
 | `prompt_file` | `prompts_es.yaml` | Prompts file: a name in `params/` or an absolute path |
 | `timeout` | `60.0` | Seconds to wait for each answer |
@@ -755,8 +807,8 @@ One node per service and backend, named `<service>_<backend>`:
 
 | Node | Service | Backend | Needs | Parameters |
 | --- | --- | --- | --- | --- |
-| `stt_whisper` | STT | Whisper, local (on the GPU if PyTorch sees CUDA) | - | `model` (`tiny`), `language` (`es`) |
-| `stt_faster_whisper` | STT | faster-whisper with Silero VAD, local (on the GPU if CTranslate2 sees CUDA) | - | `model` (`tiny`), `language` (`es`), `device`, `compute_type` (see [faster-whisper and Piper](#faster-whisper-and-piper)) |
+| `stt_whisper` | STT | Whisper, local | - | `model` (`small`), `language` (`es`), `device` (`cpu`, `cuda` or `auto`) |
+| `stt_faster_whisper` | STT | faster-whisper with Silero VAD, local | - | `model` (`small`), `language` (`es`), `device` (`cpu`, `cuda` or `auto`), `compute_type` (see [faster-whisper and Piper](#faster-whisper-and-piper)) |
 | `stt_openai` | STT | OpenAI `whisper-1` | `OPENAI_API_KEY` + credits | `language` (`es`) |
 | `tts_mms` | TTS | `facebook/mms-tts-<lang_code>`, local | - | `lang_code`, `volume`, `use_gpu`, `play_sound`, `audio_player` |
 | `tts_piper` | TTS | Piper voice, local (CPU) | - | `lang_code` (`es`/`en`), `voice`, `speaker`, `models_dir`, `volume`, `length_scale`, `noise_scale`, `noise_w_scale`, `play_sound`, `audio_player` |
@@ -790,8 +842,8 @@ language in `params/`: `prompts_es.yaml` and `prompts_en.yaml`. Each one has, fo
 extract:
   system: |
     Eres un extractor de información...
-    interest: "nombre" | texto: "me llamo Carmen" -> Carmen
-  user: 'interest: "{interest}" | texto: "{text}" ->'
+    Frase: "hola, soy Luis Miguel" | Categoría: nombre -> Luis Miguel
+  user: 'Frase: "{text}" | Categoría: {interest} ->'
 ```
 
 The examples matter for small models (0.5-4B parameters): without them, `qwen2.5:3b` missed
@@ -833,7 +885,7 @@ backend (`backend:=local` or `backend:=ollama`).
 ```bash
 curl http://localhost:11434/api/version   # is the server (or the tunnel) up?
 ollama list                                # models downloaded (run it on the server)
-ollama pull qwen2.5:3b
+ollama pull qwen2.5:7b
 ```
 
 If the SSH tunnel says `bind: Address already in use`, Ollama is also running on your

@@ -13,13 +13,13 @@ extract:
   system: |
     You are an information extractor for a robot that talks with people in English.
 
-    You receive a category of interest ('interest') and a sentence said by a person ('text').
-    Return ONLY the words of the sentence that are a value of that category.
+    You receive a sentence said by a person and a category. Return ONLY the values of that
+    category that appear in the sentence.
 
     Rules:
     - Copy the words as they appear in the sentence. Do not translate or change them.
     - The category is general: anything of that kind counts even if the sentence does not use the name of the category ("kitchen" is a room, "John" is a name, "water" is a drink).
-    - Return only the values of that category, not those of other categories in the same sentence.
+    - The same sentence may have values of several categories: return only those of the category you are asked for. For example, in an order the drink is not food and the dessert is not a drink.
     - Return the whole value: compound names ("Mary Jane"), drinks or dishes of several words ("orange juice", "coca cola", "chicken and rice").
     - Do not include adjectives, colors, quantities or articles that go with the value ("cold", "red", "a", "the"), unless the category is exactly that (for example, "color").
     - If there are several values, separate them with ';' without spaces.
@@ -27,17 +27,20 @@ extract:
     - If the sentence has no value of the category, return exactly: NONE
 
     Examples:
-    interest: "name" | text: "hi, I'm Mary Jane" -> Mary Jane
-    interest: "name" | text: "my name is Carl" -> Carl
-    interest: "drink" | text: "I want a really hot coffee with milk" -> coffee with milk
-    interest: "drink" | text: "bring me a beer and a water" -> beer;water
-    interest: "food" | text: "for lunch I'd like chicken and rice" -> chicken and rice
-    interest: "object" | text: "bring the black remote from the living room" -> remote
-    interest: "room" | text: "bring the black remote from the living room" -> living room
-    interest: "room" | text: "look for my glasses in the bedroom and in the bathroom" -> bedroom;bathroom
-    interest: "person" | text: "call my brother" -> brother
-    interest: "food" | text: "I'm very tired" -> NONE
-  user: 'interest: "{interest}" | text: "{text}" ->'
+    Sentence: "hi, I'm Mary Jane" | Category: name -> Mary Jane
+    Sentence: "I want a really hot coffee with milk" | Category: drink -> coffee with milk
+    Sentence: "bring me a beer and a water" | Category: drink -> beer;water
+    Sentence: "for me a lemonade, a steak and ice cream for dessert" | Category: drink -> lemonade
+    Sentence: "for me a lemonade, a steak and ice cream for dessert" | Category: food -> steak
+    Sentence: "for me a lemonade, a steak and ice cream for dessert" | Category: dessert -> ice cream
+    Sentence: "a juice and a potato omelette, please" | Category: food -> potato omelette
+    Sentence: "a juice and a potato omelette, please" | Category: dessert -> NONE
+    Sentence: "bring the black remote from the living room" | Category: object -> remote
+    Sentence: "bring the black remote from the living room" | Category: room -> living room
+    Sentence: "look for my glasses in the bedroom and in the bathroom" | Category: room -> bedroom;bathroom
+    Sentence: "call my brother" | Category: person -> brother
+    Sentence: "I'm very tired" | Category: food -> NONE
+  user: 'Sentence: "{text}" | Category: {interest} ->'
 
 yesno:
   system: |

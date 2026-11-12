@@ -22,8 +22,9 @@ import urllib.request
 from openai import OpenAI
 
 DEFAULT_HOST = 'http://localhost:11434'
-# Fits in a 4 GB GPU. Bigger models (e.g. qwen2.5:7b, gemma3:12b) answer better
-DEFAULT_MODEL = 'qwen2.5:3b'
+# The smallest that separates the values of several categories in one sentence (qwen2.5:3b
+# mixes them up). It needs ~5 GB: on a 4 GB GPU, Ollama runs it on the CPU (~2 s per request)
+DEFAULT_MODEL = 'qwen2.5:7b'
 
 
 def normalize_host(host):
