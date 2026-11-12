@@ -37,14 +37,27 @@ def resolve_prompt_path(prompt_file):
 class Prompt:
     """Prompt of one service: system instructions and template of the user message."""
 
-    def __init__(self, path, system, user):
+    def __init__(self, path, system, user, clean_text=None):
         self.path = path
         self.system = system
         self.template = user
+        self.clean_text = clean_text  # Applied to the text of each request, if given
 
     def user(self, **fields):
         """User message of a request, e.g. prompt.user(interest='bebida', text='...')."""
+        if self.clean_text and 'text' in fields:
+            fields['text'] = self.clean_text(fields['text'])
         return self.template.format(**fields)
+
+
+def clean_yesno_text(text):
+    """
+    Write an answer as the models classify it best: lowercase, without a final '.' or '!'.
+
+    The STT writes "Estoy de puta madre.", and Qwen2.5-1.5B answered NO to it but YES to
+    "estoy de puta madre". Extract does not do this: it must copy the values as they are.
+    """
+    return (text or '').strip().rstrip('.!').strip().lower()
 
 
 def load_prompt(prompt_file, service):
@@ -57,7 +70,7 @@ def load_prompt(prompt_file, service):
         user = data[service]['user'].strip()
     except (KeyError, TypeError, AttributeError):
         raise ValueError(f"{path} needs '{service}: {{system: ..., user: ...}}'")
-    return Prompt(path, system, user)
+    return Prompt(path, system, user, clean_yesno_text if service == 'yesno' else None)
 
 
 def clean_answer(answer):

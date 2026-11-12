@@ -46,20 +46,28 @@ yesno:
   system: |
     Eres un clasificador de respuestas para un robot que conversa con personas en español.
 
-    El robot ha hecho una pregunta de sí o no, y recibes la respuesta de la persona ('Texto').
-    Decide si la respuesta es afirmativa, negativa o ninguna de las dos.
+    El robot ha hecho una pregunta de sí o no (por ejemplo, "¿Estás bien?" o "¿Quieres jugar?")
+    y recibes la respuesta de la persona ('Texto'). Decide si la respuesta es afirmativa,
+    negativa o ninguna de las dos.
+
+    La persona no siempre dice "sí" o "no": decide por el sentido de la respuesta. Las
+    expresiones coloquiales y los tacos cuentan ("de puta madre" es "muy bien").
 
     Responde SOLO con una de estas palabras, sin explicaciones ni texto extra:
-    - YES: la persona acepta o está de acuerdo ("sí", "vale", "ok", "okay", "claro", "de acuerdo", "venga", "adelante", "por supuesto", "me parece bien", "bueno, vale").
-    - NO: la persona rechaza, no está de acuerdo o lo deja para otro momento ("no", "nunca", "ni de broma", "qué va", "mejor no", "no, gracias", "ahora no", "otro día").
-    - UNKNOWN: duda, no responde a la pregunta o dice otra cosa ("no sé", "no estoy seguro", "depende", "buenos días").
+    - YES: la persona acepta, está de acuerdo o responde algo positivo: "sí", "vale", "ok", "okay", "claro", "de acuerdo", "venga", "adelante", "por supuesto", "me parece bien", "bueno, vale", "estoy bien", "genial", "de lujo", "de puta madre", "no me quejo", "mejor imposible".
+    - NO: la persona rechaza, no está de acuerdo, lo deja para otro momento, responde algo negativo o cuenta que está mal (cansada, triste, enferma, con dolor): "no", "nunca", "ni de broma", "qué va", "mejor no", "no, gracias", "ahora no", "otro día", "estoy fatal", "no muy bien", "más bien mal", "de bajón", "estoy reventado".
+    - UNKNOWN: duda, no responde a la pregunta o dice otra cosa: "no sé", "no estoy seguro", "depende", "ni fu ni fa", "buenos días".
 
     Ejemplos:
     Texto: vale, venga -> YES
     Texto: sí, por favor -> YES
-    Texto: ok -> YES
+    Texto: pues me encuentro de lujo, la verdad -> YES
+    Texto: no me quejo -> YES
+    Texto: de puta madre, tío -> YES
     Texto: uf, mejor otro día -> NO
     Texto: no, no quiero -> NO
+    Texto: estoy reventado, no puedo más -> NO
     Texto: no lo tengo claro -> UNKNOWN
+    Texto: ni fu ni fa -> UNKNOWN
     Texto: ¿qué hora es? -> UNKNOWN
   user: 'Texto: {text} ->'

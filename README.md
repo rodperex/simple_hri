@@ -449,7 +449,21 @@ need the model to separate the categories:
 
 With the previous prompts the small models scored better on the 20 sentences (`qwen2.5:3b`
 19, `Qwen2.5-1.5B` 16), but none of them separated the categories of an order (2-4 of 11,
-also `qwen2.5:7b`). Previous results (October 2026, previous prompts), with the Spanish
+also `qwen2.5:7b`).
+
+Yes/No with the current prompts (November 2026), in Spanish: the 20 sentences of `test_llm`,
+24 colloquial answers to "¿Estás bien?" ("estoy de putísima madre", "no me puedo quejar",
+"regular, tirando a mal") and 12 more that are not in the prompt, all written as the STT
+writes them (capital letter and final period):
+
+| `backend` | Model | `test_llm` | Colloquial | Not in the prompt |
+| --- | --- | --- | --- | --- |
+| `ollama` | `qwen2.5:7b` | 19 / 20 | 22 / 24 | 12 / 12 |
+| `ollama` | `qwen2.5:3b` | 19 / 20 | 23 / 24 | 12 / 12 |
+| `local` | `Qwen2.5-1.5B-Instruct` | 19 / 20 | 22 / 24 | 11 / 12 |
+
+With the previous prompt the colloquial answers failed (7-17 of 24): it only knew yes/no as
+accepting or refusing, and `qwen2.5:7b` answered `UNKNOWN` to "estoy bien". Previous results (October 2026, previous prompts), with the Spanish
 (`test_llm`) and English (`test_llm en`) sentences:
 
 | `backend` | Model | Extract es / en | Yes/No es / en | Time per request |
@@ -849,7 +863,10 @@ extract:
 ```
 
 The examples matter for small models (0.5-4B parameters): without them, `qwen2.5:3b` missed
-names such as "soy María José" and answered `NO` to "vale". `simple_hri/prompts.py` loads the
+names such as "soy María José" and answered `NO` to "vale". The text of a Yes/No request is
+sent in lowercase and without a final `.` or `!` (`clean_yesno_text`): `Qwen2.5-1.5B`
+answered `NO` to "Estoy de puta madre." and `YES` to "estoy de puta madre". Extract sends
+the text as it is, because it copies the values from it. `simple_hri/prompts.py` loads the
 file and cleans the answers of every backend in the same way.
 
 To change the prompts, copy the file, edit it and pass it with `prompt_file` (a name in

@@ -46,20 +46,27 @@ yesno:
   system: |
     You are an answer classifier for a robot that talks with people in English.
 
-    The robot has asked a yes/no question, and you receive the answer of the person ('Text').
-    Decide whether the answer is affirmative, negative or neither.
+    The robot has asked a yes/no question (for example, "Are you OK?" or "Do you want to
+    play?") and you receive the answer of the person ('Text'). Decide whether the answer is
+    affirmative, negative or neither.
+
+    The person does not always say "yes" or "no": decide by the meaning of the answer.
+    Colloquial expressions and swear words count ("bloody brilliant" is "very well").
 
     Answer ONLY with one of these words, without explanations or extra text:
-    - YES: the person accepts or agrees ("yes", "yeah", "ok", "okay", "sure", "of course", "alright", "go ahead", "sounds good", "fine").
-    - NO: the person refuses, disagrees or leaves it for another time ("no", "nope", "never", "no way", "no, thanks", "not now", "maybe another day").
-    - UNKNOWN: doubt, the person does not answer the question or says something else ("I don't know", "I'm not sure", "it depends", "good morning").
+    - YES: the person accepts, agrees or answers something positive ("yes", "yeah", "ok", "okay", "sure", "of course", "alright", "go ahead", "sounds good", "fine", "I'm good", "great", "awesome", "can't complain", "never better").
+    - NO: the person refuses, disagrees, leaves it for another time, answers something negative or says that they are not well (tired, sad, ill, in pain) ("no", "nope", "never", "no way", "no, thanks", "not now", "maybe another day", "terrible", "not too good", "pretty bad", "feeling down", "I'm exhausted").
+    - UNKNOWN: doubt, the person does not answer the question or says something else ("I don't know", "I'm not sure", "it depends", "so-so", "good morning").
 
     Examples:
     Text: ok, go ahead -> YES
     Text: yes, please -> YES
-    Text: sure -> YES
+    Text: honestly, I'm feeling fantastic -> YES
+    Text: can't complain -> YES
     Text: ugh, better another day -> NO
     Text: no, I don't want to -> NO
+    Text: I'm exhausted, I can't take it anymore -> NO
     Text: I'm not sure -> UNKNOWN
+    Text: so-so -> UNKNOWN
     Text: what time is it? -> UNKNOWN
   user: 'Text: {text} ->'
