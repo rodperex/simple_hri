@@ -23,35 +23,14 @@ class TestExtract(Node):
     def __init__(self):
         super().__init__('extract_client')
 
-        # Cliente del servicio TTS
-        # self.tts_client = self.create_client(TextToSpeech, '/tts_service')
-        # while not self.tts_client.wait_for_service(timeout_sec=1.0):
-        #     self.get_logger().info('/tts_service no disponible, esperando...')
-
         # Cliente del servicio Extract
         self.extract_client = self.create_client(Extract, '/extract_service')
         while not self.extract_client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('/extract_service no disponible, esperando...')
 
-        self.get_logger().info("✅ Clientes Extract y TTS listos para usar.")
+        self.get_logger().info("✅ Cliente Extract listo para usar.")
 
     def run(self):
-
-        # 1️⃣ Llamar al servicio STT
-        # self.get_logger().info("🎤 Iniciando reconocimiento de voz (STT)...")
-        # stt_req = SetBool.Request()
-        # stt_req.data = True  # Indica al servicio que inicie grabación
-
-        # stt_future = self.stt_client.call_async(stt_req)
-        # rclpy.spin_until_future_complete(self, stt_future)
-        # stt_response = stt_future.result()
-
-        # if not stt_response.success:
-        #     self.get_logger().error(f"❌ Error en STT: {stt_response.message}")
-        #     return
-
-        # transcribed_text = stt_response.message
-        # self.get_logger().info(f"📝 Transcripción obtenida: {transcribed_text}")
 
         self.get_logger().info("🔍 Enviando texto al servicio Extract...")
         extract_req = Extract.Request()
@@ -65,7 +44,7 @@ class TestExtract(Node):
         extract_response = extract_future.result()
 
         if extract_response.result == "ERROR":
-            self.get_logger().error(f"❌ Error en Extract: {extract_response.message}")
+            self.get_logger().error("❌ Error en Extract")
             return
 
         transcribed_text = extract_response.result

@@ -6,7 +6,6 @@ find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/Extract.srv"
   "srv/YesNo.srv"
-  "srv/Speech.srv"
   "action/Listen.action"
   "action/Say.action"
 )

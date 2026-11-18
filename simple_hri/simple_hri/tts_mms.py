@@ -16,8 +16,6 @@ import rclpy
 from rclpy.node import Node
 from transformers import pipeline
 
-# Import your custom service interface
-from simple_hri_interfaces.srv import Speech
 from audio_send_interfaces.srv import SendAudio
 
 from simple_hri.audio_player import AudioPlayer
@@ -66,42 +64,12 @@ class HFTTSService(Node):
 
         self.player = AudioPlayer(self.get_logger(), audio_player)
 
-        # Create Service
-        self.srv = self.create_service(Speech, "tts_service", self.tts_callback)
-
-        # Action /tts_action: same work as the service, but it finishes when playback ends
-        # and can be canceled. The lock serializes synthesis between service and action.
+        # Action /tts_action: it finishes when playback ends and can be canceled.
+        # The lock keeps two goals from synthesizing at once.
         self.synth_lock = threading.Lock()
         self.say_action = SayActionServer(self, self.speak, self.stop_speaking, self.synth_lock)
         
         self.get_logger().info("TTSService (Hugging Face) initialized.")
-
-    def tts_callback(self, sRequest, sResponse):
-        reqText = sRequest.text.strip()
-        
-        if not reqText:
-            sResponse.success = False
-            sResponse.debug = "Empty text provided"
-            self.get_logger().warn(sResponse.debug)
-            return sResponse
-
-        self.get_logger().info(f"Processing TTS: '{reqText[:20]}...'")
-
-        try:
-            with self.synth_lock:
-                output_path, _ = self.synthesize_and_play(reqText)
-
-            sResponse.success = True
-            sResponse.debug = f"Generated {output_path} via HF MMS-TTS"
-            
-            # Optional: Clean up old files (garbage collection logic could go here)
-
-        except Exception as e:
-            self.get_logger().error(f"TTS Inference/Playback failed: {e}")
-            sResponse.success = False
-            sResponse.debug = str(e)
-
-        return sResponse
 
     def synthesize_and_play(self, text):
         """Synthesize the text, start playing it (non-blocking) and return (path, duration)."""

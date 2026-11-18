@@ -17,11 +17,11 @@
 """
 STT with faster-whisper and Silero VAD: the same interface as stt_whisper.
 
-  /stt_service  (std_srvs/SetBool)               listen once and transcribe
-  /stt_action   (simple_hri_interfaces/Listen)   the same, with feedback and cancellation
+  /stt_action   (simple_hri_interfaces/Listen)   listen once and transcribe, with feedback,
+                                                 a maximum wait and cancellation
   /listened_text (std_msgs/String)               every transcription
 
-It listens only while a request is active. Silero VAD (a neural voice detector, more robust
+It listens only while a goal is active. Silero VAD (a neural voice detector, more robust
 to noise than webrtcvad) finds the speech: the recording starts at the first voice (with
 pre_record seconds before it, so that the first syllable is kept) and ends after grace_period
 seconds of silence, or after max_phrase_secs. faster-whisper (CTranslate2) transcribes it:
@@ -46,7 +46,6 @@ import torch
 from faster_whisper import WhisperModel
 from rclpy.node import Node
 from std_msgs.msg import String
-from std_srvs.srv import SetBool
 
 from simple_hri.voice_actions import ListenActionServer, spin_multithreaded
 
@@ -136,11 +135,9 @@ class STTFasterWhisper(Node):
             force_reload=False, trust_repo=True)
         self.asr = self.load_asr()
 
-        self.srv = self.create_service(SetBool, 'stt_service', self.stt_callback)
         self.pub = self.create_publisher(String, '/listened_text', 10)
 
-        # /stt_action: the same work as the service, with feedback and cancellation.
-        # The lock keeps the service and the action from using the microphone at once.
+        # /stt_action. The lock keeps two goals from using the microphone at once.
         self.mic_lock = threading.Lock()
         self.last_record_timed_out = False
         self.listen_action = ListenActionServer(self, self.listen, self.mic_lock)
@@ -262,26 +259,6 @@ class STTFasterWhisper(Node):
         self.get_logger().info(f'Result: "{text}"')
         self.pub.publish(String(data=text))
         return text
-
-    def stt_callback(self, request, response):
-        if not request.data:
-            response.success = False
-            response.message = "Send 'True' to start listening."
-            return response
-        with self.mic_lock:
-            audio = self.record_audio_with_vad()
-        if len(audio) == 0:
-            response.success = False
-            response.message = 'No audio detected or timeout.'
-            return response
-        try:
-            response.message = self.transcribe(audio)
-            response.success = True
-        except Exception as e:
-            self.get_logger().error(f'Inference error: {e}')
-            response.success = False
-            response.message = str(e)
-        return response
 
     def listen(self, max_wait, should_stop, on_status):
         """Work of the /stt_action action (ListenActionServer takes the lock)."""

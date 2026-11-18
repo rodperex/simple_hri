@@ -13,7 +13,6 @@ import whisper
 import collections
 import threading
 from rclpy.node import Node
-from std_srvs.srv import SetBool
 from std_msgs.msg import String
 from scipy.io.wavfile import write
 
@@ -58,16 +57,14 @@ class STTService(Node):
         self.whisper_model = whisper.load_model(model_name, device=device,
                                                 download_root=whisper_cache_dir)
         
-        # Servicio y Publisher
-        self.srv = self.create_service(SetBool, "stt_service", self.stt_callback)
+        # Publisher
         self.pub = self.create_publisher(String, "/listened_text", 10)
         
         # Inicializar VAD
         self.vad = webrtcvad.Vad()
         self.vad.set_mode(VAD_SENSITIVITY)
 
-        # Acción /stt_action: mismo trabajo que el servicio, con feedback y cancelación.
-        # El cerrojo evita que servicio y acción usen el micrófono a la vez.
+        # Acción /stt_action. El cerrojo evita que dos objetivos usen el micrófono a la vez.
         self.mic_lock = threading.Lock()
         self.last_record_timed_out = False
         self.listen_action = ListenActionServer(self, self.listen, self.mic_lock)
@@ -162,33 +159,6 @@ class STTService(Node):
             return audio_data
         else:
             return np.array([])
-
-    def stt_callback(self, sRequest, sResponse):
-        if not sRequest.data:
-            sResponse.success = False
-            sResponse.message = "Envia 'True' para comenzar a escuchar."
-            return sResponse
-
-        # 1. Grabar
-        with self.mic_lock:
-            audio_data = self.record_audio_with_vad()
-        
-        if len(audio_data) == 0:
-            sResponse.success = False
-            sResponse.message = "No se detectó audio o timeout."
-            return sResponse
-
-        try:
-            text = self.transcribe(audio_data)
-            sResponse.success = True
-            sResponse.message = text
-
-        except Exception as e:
-            self.get_logger().error(f'❌ Error inferencia: {e}')
-            sResponse.success = False
-            sResponse.message = str(e)
-
-        return sResponse
 
     def transcribe(self, audio_data):
         """Transcribe el audio con Whisper y publica el texto en /listened_text."""

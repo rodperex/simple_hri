@@ -21,7 +21,6 @@ import numpy as np
 import sounddevice as sd
 import webrtcvad
 from rclpy.node import Node
-from std_srvs.srv import SetBool
 from std_msgs.msg import String
 import openai
 import threading
@@ -49,8 +48,6 @@ class STTService(Node):
             self.get_logger().error("❌ No se encontró la clave de API de OpenAI. Exporta OPENAI_API_KEY antes de ejecutar.")
             exit(1)
 
-        # Servicio
-        self.srv = self.create_service(SetBool, "stt_service", self.stt_callback)
         # Publisher
         self.pub = self.create_publisher(String, "/listened_text", 10)
 
@@ -60,8 +57,7 @@ class STTService(Node):
         self.vad = webrtcvad.Vad()
         self.vad.set_mode(VAD_SENSITIVITY)
 
-        # Acción /stt_action: mismo trabajo que el servicio, con feedback y cancelación.
-        # El cerrojo evita que servicio y acción usen el micrófono a la vez.
+        # Acción /stt_action. El cerrojo evita que dos objetivos usen el micrófono a la vez.
         self.mic_lock = threading.Lock()
         self.last_record_timed_out = False
         self.listen_action = ListenActionServer(self, self.listen, self.mic_lock)
@@ -110,34 +106,6 @@ class STTService(Node):
             return audio_data
         else:
             return np.array([])
-
-    def stt_callback(self, sRequest, sResponse):
-        if not sRequest.data:
-            sResponse.success = False
-            sResponse.message = "El servicio debe llamarse con 'True' para iniciar reconocimiento."
-            return sResponse
-
-        try:
-            with self.mic_lock:
-                audio_data = self.record_audio_with_vad()
-            if len(audio_data) == 0:
-                self.get_logger().info("⚠️ No se detectó voz.")
-                sResponse.success = True
-                sResponse.message = "No se detectó voz en la grabación."
-                return sResponse
-
-            transcribed_text = self.transcribe(audio_data)
-
-            # Responder al servicio
-            sResponse.success = True
-            sResponse.message = transcribed_text
-
-        except Exception as e:
-            self.get_logger().error(f'❌ Error en el reconocimiento de voz: {e}')
-            sResponse.success = False
-            sResponse.message = str(e)
-
-        return sResponse
 
     def transcribe(self, audio_data):
         """Transcribe el audio con la API de Whisper y publica el texto en /listened_text."""

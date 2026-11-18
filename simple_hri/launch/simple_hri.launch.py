@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Launch the simple_hri services: STT, TTS, Extract and Yes/No.
+"""Launch simple_hri: STT and TTS (actions), Extract and Yes/No (services).
 
-Each service has a backend. "backend" chooses all of them at once:
+Each one has a backend. "backend" chooses all of them at once:
 
   backend   STT                TTS             Extract and Yes/No
   local     Whisper            Piper           Qwen2.5-1.5B (transformers)

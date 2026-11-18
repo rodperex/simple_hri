@@ -15,9 +15,8 @@
 """
 Listen and Say action servers shared by the STT and TTS nodes.
 
-The nodes keep their original services (/stt_service, /tts_service) unchanged.
-These actions run the same code and add what a service cannot offer:
-feedback, cancellation and, for Say, finishing when playback really ends.
+Listening and speaking last seconds, so they are actions, not services: they give
+feedback, can be canceled and, for Say, finish when playback really ends.
 """
 
 import time
@@ -58,7 +57,7 @@ class ListenActionServer:
         """Create the action server on the node."""
         self._node = node
         self._listen_fn = listen_fn
-        self._lock = lock  # Shared with the service: only one recording at a time
+        self._lock = lock  # Only one recording at a time
         self._server = ActionServer(
             node, Listen, name,
             execute_callback=self._execute,
@@ -109,7 +108,7 @@ class SayActionServer:
         self._node = node
         self._speak_fn = speak_fn
         self._stop_fn = stop_fn
-        self._lock = lock  # Shared with the service: only one synthesis at a time
+        self._lock = lock  # Only one synthesis at a time
         self._server = ActionServer(
             node, Say, name,
             execute_callback=self._execute,

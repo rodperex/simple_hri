@@ -3,22 +3,23 @@
 A lightweight set of ROS 2 nodes for Human-Robot Interaction (HRI): speech-to-text (STT),
 text-to-speech (TTS), information extraction with an LLM and yes/no detection.
 
-Each service has several **backends** (local models, Ollama, Hugging Face, cloud APIs), and
-all of them offer the same ROS 2 interface, so a client works with any of them. A single
-launch file starts the services with the backend you choose.
+Listening and speaking last seconds, so they are **actions** (feedback, cancellation, and
+speaking finishes when the audio ends); extracting information and yes/no detection are
+queries on a text, so they are **services**. Each capability has several **backends** (local
+models, Ollama, Hugging Face, cloud APIs), and all of them offer the same ROS 2 interface, so
+a client works with any of them. A single launch file starts them with the backend you choose.
 
 ## Features
 
-- **STT:** listens to the microphone, detects voice (VAD), records until silence and
+- **STT** (action): listens to the microphone, detects voice (VAD), records until silence and
   transcribes it. Backends: local Whisper, local faster-whisper (with Silero VAD) or the
   OpenAI API.
-- **TTS:** synthesizes a text and plays it (or sends it to another device). Backends: local
+- **TTS** (action): synthesizes a text and plays it (or sends it to another device). Backends: local
   `facebook/mms-tts-*` models, local Piper voices or Google Cloud.
-- **Extract:** given a text and an *interest* (e.g. "bebida"), returns only the relevant
+- **Extract** (service): given a text and an *interest* (e.g. "bebida"), returns only the relevant
   words. Backends: local LLM, Ollama, Hugging Face or OpenAI.
-- **Yes/No:** tells whether an answer is affirmative, negative or neither. Backends: local
+- **Yes/No** (service): tells whether an answer is affirmative, negative or neither. Backends: local
   LLM, word lists, Ollama, Hugging Face or OpenAI.
-- **Actions** for listening and speaking, with feedback and cancellation.
 
 ## Requirements
 
@@ -68,14 +69,14 @@ source install/setup.bash
 2. In another terminal (same workspace and `ROS_DOMAIN_ID`), try it:
 
    ```bash
-   ros2 service call /tts_service simple_hri_interfaces/srv/Speech "{text: 'Hola, soy un robot'}"
-   ros2 service call /stt_service std_srvs/srv/SetBool "{data: true}"   # then speak
-   ros2 run simple_hri test_llm                                          # Extract and Yes/No
+   ros2 action send_goal /tts_action simple_hri_interfaces/action/Say "{text: 'Hola, soy un robot'}"
+   ros2 action send_goal /stt_action simple_hri_interfaces/action/Listen "{max_wait: 8.0}"   # then speak
+   ros2 run simple_hri test_llm                                                # Extract and Yes/No
    ```
 
 3. Choose other backends, language or models with the launch arguments (see
-   [Launching](#launching)), and use the services and actions from your nodes (see
-   [Services](#services) and [Actions](#actions)).
+   [Launching](#launching)), and use the actions and services from your nodes (see
+   [Actions](#actions) and [Services](#services)).
 
 ## Launching
 
@@ -83,9 +84,9 @@ source install/setup.bash
 ros2 launch simple_hri simple_hri.launch.py backend:=<backend> [other arguments]
 ```
 
-It starts the four services (`/stt_service`, `/tts_service`, `/extract_service`,
-`/yesno_service`) and the two actions (`/stt_action`, `/tts_action`). The interfaces are the
-same with every backend, so your client does not change.
+It starts the two actions (`/stt_action`, `/tts_action`) and the two services
+(`/extract_service`, `/yesno_service`). The interfaces are the same with every backend, so
+your client does not change.
 
 ### Backends
 
@@ -491,15 +492,13 @@ ros2 service call /yesno_service simple_hri_interfaces/srv/YesNo "{text: 'sí, c
 **STT and TTS** (speak after launching the STT ones):
 
 ```bash
-ros2 service call /tts_service simple_hri_interfaces/srv/Speech "{text: 'Hola, soy un robot'}"
 ros2 action send_goal --feedback /tts_action simple_hri_interfaces/action/Say "{text: 'Hola'}"
-ros2 service call /stt_service std_srvs/srv/SetBool "{data: true}"
 ros2 action send_goal --feedback /stt_action simple_hri_interfaces/action/Listen "{max_wait: 8.0}"
-ros2 run simple_hri test_services       # listens and repeats what you said
+ros2 run simple_hri test_voice          # listens and repeats what you said
 ros2 run simple_hri test_extract        # sends a sample sentence to Extract
 ```
 
-While testing, the terminal of the launch shows what each service receives and answers.
+While testing, the terminal of the launch shows what each node receives and answers.
 
 ## Ollama: LLM on your GPU or on a server
 
@@ -708,34 +707,41 @@ how to fix it otherwise (`ollama pull <model>`). They start anyway, and the requ
 To combine Ollama with other STT and TTS backends, use the per-service arguments (see
 [Mixing backends](#mixing-backends)), e.g. `extract:=ollama yesno:=ollama stt:=openai`.
 
+## Actions
+
+Listening and speaking are **actions**: they last seconds, give feedback, can be canceled and,
+for speaking, finish when the audio really ends. Each node serves one goal at a time (two goals
+never use the microphone or the speakers at once).
+
+### Listen
+
+**Action:** `/stt_action` (`simple_hri_interfaces/action/Listen`)
+
+- **Goal:** `max_wait`: seconds to wait for the person to start speaking (`0` = default, 10 s).
+- **Feedback:** `status`: `listening`, `speech_detected`, `transcribing`.
+- **Result:** `success`, `timed_out` (nobody spoke), `text`, `message`. The text is also
+  published on `/listened_text` (`std_msgs/msg/String`). It records until 1 s of silence
+  (1.5 s with the cloud backend), in the language of the launch (`language`).
+- **Cancel:** stops recording immediately.
+
+### Say
+
+**Action:** `/tts_action` (`simple_hri_interfaces/action/Say`)
+
+- **Goal:** `text`.
+- **Feedback:** `remaining`: seconds of playback left.
+- **Result:** `success`, `message`. It finishes when playback really ends (exact
+  duration, read from the generated WAV).
+- **Cancel:** stops the audio (not possible with `play_sound:=false`, where the audio is
+  sent to another device).
+
+The nodes spin with a multi-threaded executor, so a cancel request is attended while the
+action is running.
+
 ## Services
 
-### Speech-to-Text (STT)
-
-**Service:** `/stt_service` (`std_srvs/srv/SetBool`)
-
-Call it with `data: true`. It waits up to 10 s for someone to speak, records until 1 s of
-silence (1.5 s with the cloud backend) and returns the text in `message`. The text is also
-published on `/listened_text` (`std_msgs/msg/String`). The language is the one of the launch
-(`language`).
-
-```python
-from std_srvs.srv import SetBool
-
-stt_client = self.create_client(SetBool, '/stt_service')
-request = SetBool.Request()
-request.data = True
-future = stt_client.call_async(request)
-# When done: future.result().success, future.result().message (the text)
-```
-
-### Text-to-Speech (TTS)
-
-**Service:** `/tts_service` (`simple_hri_interfaces/srv/Speech`)
-
-- **Request:** `text`.
-- **Response:** `success`, `debug`. It returns as soon as playback starts; use the
-  `/tts_action` action to know when it ends.
+Extracting information and yes/no detection are **services**: queries on a text (normally the
+one `/stt_action` returned), answered at once.
 
 ### Extract
 
@@ -786,36 +792,6 @@ With `tts_speaks:=false`, TTS does not play the WAV file: it calls `/trigger_aud
 reads the file and publishes its bytes on `/audio_file_data` (`std_msgs/msg/UInt8MultiArray`),
 and `audio_file_player`, on the machine with the speakers, plays them.
 `run_interaction_services:=false` launches these two nodes.
-
-## Actions
-
-The STT and TTS nodes also offer their work as **actions**, which add what a service cannot
-offer: feedback, knowing when speech really ends, and cancellation. Services and actions are
-available at the same time and never use the microphone concurrently.
-
-### Listen
-
-**Action:** `/stt_action` (`simple_hri_interfaces/action/Listen`)
-
-- **Goal:** `max_wait`: seconds to wait for the person to start speaking (`0` = default, 10 s).
-- **Feedback:** `status`: `listening`, `speech_detected`, `transcribing`.
-- **Result:** `success`, `timed_out` (nobody spoke), `text`, `message`. The text is also
-  published on `/listened_text`.
-- **Cancel:** stops recording immediately.
-
-### Say
-
-**Action:** `/tts_action` (`simple_hri_interfaces/action/Say`)
-
-- **Goal:** `text`.
-- **Feedback:** `remaining`: seconds of playback left.
-- **Result:** `success`, `message`. Unlike `/tts_service`, the action finishes when
-  playback really ends (exact duration, read from the generated WAV).
-- **Cancel:** stops the audio (not possible with `play_sound:=false`, where the audio is
-  sent to another device).
-
-The nodes spin with a multi-threaded executor, so a cancel request is attended while the
-action is running.
 
 ## Nodes
 
@@ -916,13 +892,14 @@ computer: use another local port (`-L 11435:127.0.0.1:11434` and `ollama_host:=l
 does not fit in the GPU, so choose a smaller one. If only the first answer after a pause is
 slow, the model was unloaded: set `ollama_keep_alive`.
 
-### "Service not available"
+### "Service not available" / "Action server not available"
 
 The launch is not running, it is still loading the models (wait for the `ready` messages), or
 the terminals have different `ROS_DOMAIN_ID`:
 
 ```bash
-ros2 service list | grep -E "(stt|tts|extract|yesno)"
+ros2 action list                                 # /stt_action, /tts_action
+ros2 service list | grep -E "(extract|yesno)"
 ```
 
 ### `CUDA out of memory`
@@ -978,7 +955,7 @@ simple_hri/
 │   ├── requirements.txt          # Python dependencies
 │   ├── package.xml
 │   └── setup.py
-├── simple_hri_interfaces/        # Speech, Extract and YesNo services, Listen and Say actions
+├── simple_hri_interfaces/        # Listen and Say actions, Extract and YesNo services
 └── README.md                     # This file
 ```
 

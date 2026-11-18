@@ -21,14 +21,6 @@ import time
 import uuid
 import rclpy
 from rclpy.node import Node
-from rclpy.duration import Duration
-
-from simple_hri_interfaces.srv import Speech
-
-# string text
-# ---
-# bool success
-# string debug
 
 from audio_send_interfaces.srv import SendAudio
 
@@ -80,34 +72,12 @@ class TTSService(Node):
 
         self.player = AudioPlayer(self.get_logger(), audio_player)
 
-        self.srv = self.create_service(Speech, "tts_service", self.tts_callback)
-
-        # Action /tts_action: same work as the service, but it finishes when playback ends
-        # and can be canceled. The lock serializes synthesis between service and action.
+        # Action /tts_action: it finishes when playback ends and can be canceled.
+        # The lock keeps two goals from synthesizing at once.
         self.synth_lock = threading.Lock()
         self.say_action = SayActionServer(self, self.speak, self.stop_speaking, self.synth_lock)
 
         self.get_logger().info("✅ TTSService Server initialized.")
-
-    def tts_callback(self, sRequest, sResponse):
-        # response.sum = request.a + request.b
-        self.get_logger().info("TTSService Incoming request waiting")
-
-        #self.get_clock().sleep_for(Duration(seconds=30))
-
-        reqText = sRequest.text.strip()
-        if reqText:  # not empty string
-            with self.synth_lock:
-                self.synthesize_and_play(reqText)
-
-            sResponse.success = True
-
-        else:
-            sResponse.success = False
-            sResponse.debug = "empty text to convert"
-            self.get_logger().warn('empty text to convert')
-
-        return sResponse
 
     def synthesize_and_play(self, text):
         """Synthesize the text, start playing it (non-blocking) and return the file path."""

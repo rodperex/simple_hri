@@ -17,8 +17,8 @@
 """
 TTS with Piper voices: the same interface as tts_mms.
 
-  /tts_service  (simple_hri_interfaces/Speech)  synthesize a text and play it
-  /tts_action   (simple_hri_interfaces/Say)     the same, finishing when the playback ends
+  /tts_action   (simple_hri_interfaces/Say)     synthesize a text and play it, finishing when
+                                               the playback ends; it can be canceled
 
 Piper voices are small neural models (ONNX) with natural speech that synthesize much faster
 than real time on a CPU. The voice is loaded once. A voice is given by its file name and
@@ -43,7 +43,6 @@ from rclpy.node import Node
 from audio_send_interfaces.srv import SendAudio
 from simple_hri.audio_player import AudioPlayer
 from simple_hri.voice_actions import SayActionServer, spin_multithreaded
-from simple_hri_interfaces.srv import Speech
 
 # The default voice of each language (ISO 639-1 or the MMS code), from the Piper catalog
 DEFAULT_VOICES = {
@@ -130,31 +129,11 @@ class PiperTTSService(Node):
             self.audio_send_client = self.create_client(SendAudio, '/trigger_audio_send')
         self.player = AudioPlayer(self.get_logger(), p('audio_player').value)
 
-        self.srv = self.create_service(Speech, 'tts_service', self.tts_callback)
-        # /tts_action: the same work as the service, but it finishes when the playback ends
-        # and can be canceled. The lock serializes the synthesis of the service and the action.
+        # /tts_action: it finishes when the playback ends and can be canceled.
+        # The lock keeps two goals from synthesizing at once.
         self.synth_lock = threading.Lock()
         self.say_action = SayActionServer(self, self.speak, self.stop_speaking, self.synth_lock)
         self.get_logger().info('TTSService (Piper) initialized.')
-
-    def tts_callback(self, request, response):
-        text = request.text.strip()
-        if not text:
-            response.success = False
-            response.debug = 'Empty text provided'
-            self.get_logger().warn(response.debug)
-            return response
-        self.get_logger().info(f"Processing TTS: '{text[:20]}...'")
-        try:
-            with self.synth_lock:
-                output_path, _ = self.synthesize_and_play(text)
-            response.success = True
-            response.debug = f'Generated {output_path} via Piper'
-        except Exception as e:
-            self.get_logger().error(f'TTS Inference/Playback failed: {e}')
-            response.success = False
-            response.debug = str(e)
-        return response
 
     def synthesize(self, text):
         """The audio of the text: (int16 samples, sample rate)."""
