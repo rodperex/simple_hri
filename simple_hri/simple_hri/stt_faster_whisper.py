@@ -47,6 +47,7 @@ from faster_whisper import WhisperModel
 from rclpy.node import Node
 from std_msgs.msg import String
 
+from simple_hri.stt_filter import is_hallucination, keep_segment
 from simple_hri.voice_actions import ListenActionServer, spin_multithreaded
 
 SAMPLE_RATE = 16000
@@ -118,6 +119,8 @@ class STTFasterWhisper(Node):
         self.declare_parameter('max_phrase_secs', 15.0)  # s, longest phrase recorded
         self.declare_parameter('pre_record', 0.5)  # s of audio kept before the voice
         self.declare_parameter('audio_file', '')  # tests only: a WAV instead of the microphone
+        # Discard what Whisper invents from noise (see stt_filter); false only to debug
+        self.declare_parameter('hallucination_filter', True)
 
         p = self.get_parameter
         self.language = p('language').value
@@ -126,6 +129,7 @@ class STTFasterWhisper(Node):
         self.max_phrase_secs = p('max_phrase_secs').value
         self.pre_record = p('pre_record').value
         self.audio_file = p('audio_file').value
+        self.hallucination_filter = p('hallucination_filter').value
         input_device = p('input_device').value
         self.input_device = input_device if input_device else None
 
@@ -243,7 +247,7 @@ class STTFasterWhisper(Node):
         return np.concatenate(phrase)
 
     def transcribe(self, audio):
-        """Transcribe the audio with faster-whisper and publish it on /listened_text."""
+        """Transcribe with faster-whisper and publish on /listened_text; '' if it is not speech."""
         self.get_logger().info('Transcribing with faster-whisper...')
         segments, _ = self.asr.transcribe(
             audio,
@@ -255,26 +259,40 @@ class STTFasterWhisper(Node):
             compression_ratio_threshold=2.4,
             log_prob_threshold=-1.0,
         )
-        text = ''.join(segment.text for segment in segments).strip()
+        segments = list(segments)
+        heard = ''.join(segment.text for segment in segments).strip()
+        if self.hallucination_filter:
+            text = ''.join(s.text for s in segments if keep_segment(s.no_speech_prob)).strip()
+            if is_hallucination(text):
+                self.get_logger().info(f'Discarded, not speech: "{heard}"')
+                return ''
+        else:
+            text = heard
         self.get_logger().info(f'Result: "{text}"')
         self.pub.publish(String(data=text))
         return text
 
     def listen(self, max_wait, should_stop, on_status):
         """Work of the /stt_action action (ListenActionServer takes the lock)."""
-        audio = self.record_audio_with_vad(
-            max_wait if max_wait > 0 else MAX_WAIT_SECONDS, should_stop, on_status)
-        if should_stop():
-            return False, False, '', 'canceled'
-        if len(audio) == 0:
-            return False, self.last_record_timed_out, '', 'No audio detected or timeout.'
-        on_status('transcribing')
-        try:
-            text = self.transcribe(audio)
-            return True, False, text, text
-        except Exception as e:
-            self.get_logger().error(f'Inference error: {e}')
-            return False, False, '', str(e)
+        deadline = time.time() + (max_wait if max_wait > 0 else MAX_WAIT_SECONDS)
+        while True:
+            audio = self.record_audio_with_vad(deadline - time.time(), should_stop, on_status)
+            if should_stop():
+                return False, False, '', 'canceled'
+            if len(audio) == 0:
+                return False, self.last_record_timed_out, '', 'No audio detected or timeout.'
+            on_status('transcribing')
+            try:
+                text = self.transcribe(audio)
+            except Exception as e:
+                self.get_logger().error(f'Inference error: {e}')
+                return False, False, '', str(e)
+            if text:
+                return True, False, text, text
+            # What Whisper heard was not speech (see stt_filter): keep listening for the
+            # rest of max_wait, so that noise does not end the wait for the person
+            if time.time() >= deadline:
+                return False, True, '', 'Nobody spoke: what was heard was not speech'
 
 
 def main():

@@ -26,6 +26,7 @@ import openai
 import threading
 import time
 
+from simple_hri.stt_filter import is_hallucination
 from simple_hri.voice_actions import ListenActionServer, spin_multithreaded
 
 # Parámetros
@@ -42,6 +43,9 @@ class STTService(Node):
 
         self.declare_parameter('language', 'es')  # Language spoken: es, en...
         self.language = self.get_parameter('language').get_parameter_value().string_value
+        # Discard what Whisper invents from noise (see stt_filter); false only to debug
+        self.declare_parameter('hallucination_filter', True)
+        self.hallucination_filter = self.get_parameter('hallucination_filter').value
 
         self.api_key = os.getenv("OPENAI_API_KEY")
         if not self.api_key:
@@ -127,7 +131,11 @@ class STTService(Node):
                 language=self.language,
             )
 
-        transcribed_text = response.text
+        transcribed_text = response.text.strip()
+        # The API gives no no-speech probability: only the known hallucinations are discarded
+        if self.hallucination_filter and is_hallucination(transcribed_text):
+            self.get_logger().info(f'Descartado, no es voz: "{transcribed_text}"')
+            return ''
         self.get_logger().info(f'📝 Transcripción: {transcribed_text}')
 
         # Publicar en el topic /listened_text
@@ -139,21 +147,27 @@ class STTService(Node):
 
     def listen(self, max_wait, should_stop, on_status):
         """Trabajo de la acción /stt_action (el cerrojo lo toma ListenActionServer)."""
-        audio_data = self.record_audio_with_vad(
-            max_wait if max_wait > 0 else MAX_WAIT_SECONDS, should_stop, on_status)
+        deadline = time.time() + (max_wait if max_wait > 0 else MAX_WAIT_SECONDS)
+        while True:
+            audio_data = self.record_audio_with_vad(
+                deadline - time.time(), should_stop, on_status)
+            if should_stop():
+                return False, False, '', 'canceled'
+            if len(audio_data) == 0:
+                return False, self.last_record_timed_out, '', "No se detectó voz en la grabación."
 
-        if should_stop():
-            return False, False, '', 'canceled'
-        if len(audio_data) == 0:
-            return False, self.last_record_timed_out, '', "No se detectó voz en la grabación."
-
-        on_status('transcribing')
-        try:
-            text = self.transcribe(audio_data)
-            return True, False, text, text
-        except Exception as e:
-            self.get_logger().error(f'❌ Error en el reconocimiento de voz: {e}')
-            return False, False, '', str(e)
+            on_status('transcribing')
+            try:
+                text = self.transcribe(audio_data)
+            except Exception as e:
+                self.get_logger().error(f'❌ Error en el reconocimiento de voz: {e}')
+                return False, False, '', str(e)
+            if text:
+                return True, False, text, text
+            # Lo que oyó Whisper no era voz (ver stt_filter): seguir escuchando el resto de
+            # max_wait, para que el ruido no termine la espera a la persona
+            if time.time() >= deadline:
+                return False, True, '', 'Nadie habló: lo que se oyó no era voz'
 
 
 def main():

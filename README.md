@@ -638,7 +638,7 @@ with the default 4-bit quantization:
 
 | Model | GPU memory | Notes |
 | --- | --- | --- |
-| `qwen2.5:3b` | ~2.5 GB | Fits in 4 GB GPUs. Good enough for one value per sentence (a name, a drink), but it mixes up the categories when a sentence has several (drink, food and dessert in one order) |
+| `qwen2.5:3b` | ~2.5 GB | Fits in 4 GB GPUs and answers several times faster, but it misses: it mixes up the categories when a sentence has several (drink, food and dessert in one order), and even simple cases fail ("quiero un café con leche y una tostada", `bebida` → `NONE`). Use it only if speed matters more than the answers |
 | `llama3.2:3b` | ~2.5 GB | Alternative of the same size |
 | `gemma3:4b` | ~4 GB | Better Spanish, tight in a 4 GB GPU |
 | `qwen2.5:7b` (default) | ~5 GB | The smallest that separates several categories in one sentence. 8 GB GPUs; on a smaller one it runs on the CPU, at about 2 s per request |
@@ -780,6 +780,12 @@ never use the microphone or the speakers at once).
 - **Result:** `success`, `timed_out` (nobody spoke), `text`, `message`. The text is also
   published on `/listened_text` (`std_msgs/msg/String`). It records until 1 s of silence
   (1.5 s with the cloud backend), in the language of the launch (`language`).
+- **Noise is not speech:** with noise or silence, Whisper often invents a sentence
+  ("¡Suscríbete!", "Subtítulos por la comunidad de Amara.org"). Those transcriptions are
+  discarded (`simple_hri/stt_filter.py`): the segments that Whisper itself rates as probably
+  not speech, an empty or punctuation-only text, and the known hallucinations. The node then
+  keeps listening for the rest of `max_wait`, so `timed_out` means that nobody really spoke.
+  The parameter `hallucination_filter` of the STT nodes (default `true`) turns it off.
 - **Cancel:** stops recording immediately.
 
 ### Say
@@ -875,9 +881,9 @@ and configures them; to run one by hand, see the end of the table.
 
 | Node | Capability | Engine | Needs | Parameters |
 | --- | --- | --- | --- | --- |
-| `stt_whisper` | STT | Whisper, local | - | `model` (`small`), `language` (`es`), `device` (`cpu`, `cuda` or `auto`) |
-| `stt_faster_whisper` | STT | faster-whisper with Silero VAD, local | - | `model` (`small`), `language` (`es`), `device` (`cpu`, `cuda` or `auto`), `compute_type` (see [faster-whisper and Piper](#faster-whisper-and-piper)) |
-| `stt_openai` | STT | OpenAI `whisper-1` | `OPENAI_API_KEY` + credits | `language` (`es`) |
+| `stt_whisper` | STT | Whisper, local | - | `model` (`small`), `language` (`es`), `device` (`cpu`, `cuda` or `auto`), `hallucination_filter` (`true`) |
+| `stt_faster_whisper` | STT | faster-whisper with Silero VAD, local | - | `model` (`small`), `language` (`es`), `device` (`cpu`, `cuda` or `auto`), `compute_type` (see [faster-whisper and Piper](#faster-whisper-and-piper)), `hallucination_filter` (`true`) |
+| `stt_openai` | STT | OpenAI `whisper-1` | `OPENAI_API_KEY` + credits | `language` (`es`), `hallucination_filter` (`true`; only the known phrases, the API gives no no-speech probability) |
 | `tts_mms` | TTS | `facebook/mms-tts-<lang_code>`, local | - | `lang_code`, `volume`, `use_gpu`, `play_sound`, `audio_player` |
 | `tts_piper` | TTS | Piper voice, local (CPU) | - | `lang_code` (`es`/`en`), `voice`, `speaker`, `models_dir`, `volume`, `length_scale`, `noise_scale`, `noise_w_scale`, `play_sound`, `audio_player` |
 | `tts_google` | TTS | Google Cloud TTS | `GOOGLE_APPLICATION_CREDENTIALS` + billing | `language` (`en`), `voice` (from `language`), `play_sound`, `audio_player` |
@@ -1007,6 +1013,15 @@ one):
 ```bash
 python3 -c "import sounddevice as sd; print(sd.query_devices())"
 ```
+
+### STT "hears" sentences nobody said
+
+With room noise and nobody speaking, Whisper can return "Subtítulos por la comunidad de
+Amara.org", "¡Suscríbete!" or "...". The STT nodes discard them (the log shows
+`Discarded, not speech` or `Descartado, no es voz`) and keep listening. If one still gets
+through, add it to `HALLUCINATIONS` in `simple_hri/stt_filter.py`. If a real, short answer is
+discarded, check the log and, to compare, launch with the filter off:
+`ros2 run simple_hri stt_faster_whisper --ros-args -p hallucination_filter:=false`.
 
 ### No sound from TTS
 
