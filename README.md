@@ -5,20 +5,21 @@ text-to-speech (TTS), information extraction with an LLM and yes/no detection.
 
 Listening and speaking last seconds, so they are **actions** (feedback, cancellation, and
 speaking finishes when the audio ends); extracting information and yes/no detection are
-queries on a text, so they are **services**. Each capability has several **backends** (local
-models, Ollama, Hugging Face, cloud APIs), and all of them offer the same ROS 2 interface, so
-a client works with any of them. A single launch file starts them with the backend you choose.
+queries on a text, so they are **services**. Each capability can be done by several
+**engines** (local models, Ollama, Hugging Face, cloud APIs), all with the same ROS 2
+interface, so a client works with any of them. A single launch file starts them: a
+**backend** chooses a set of engines at once, and each capability can also change its own.
 
 ## Features
 
 - **STT** (action): listens to the microphone, detects voice (VAD), records until silence and
-  transcribes it. Backends: local Whisper, local faster-whisper (with Silero VAD) or the
+  transcribes it. Engines: local Whisper, local faster-whisper (with Silero VAD) or the
   OpenAI API.
-- **TTS** (action): synthesizes a text and plays it (or sends it to another device). Backends: local
+- **TTS** (action): synthesizes a text and plays it (or sends it to another device). Engines: local
   `facebook/mms-tts-*` models, local Piper voices or Google Cloud.
 - **Extract** (service): given a text and an *interest* (e.g. "bebida"), returns only the relevant
-  words. Backends: local LLM, Ollama, Hugging Face or OpenAI.
-- **Yes/No** (service): tells whether an answer is affirmative, negative or neither. Backends: local
+  words. Engines: local LLM, Ollama, Hugging Face or OpenAI.
+- **Yes/No** (service): tells whether an answer is affirmative, negative or neither. Engines: local
   LLM, word lists, Ollama, Hugging Face or OpenAI.
 
 ## Requirements
@@ -74,9 +75,57 @@ source install/setup.bash
    ros2 run simple_hri test_llm                                                # Extract and Yes/No
    ```
 
-3. Choose other backends, language or models with the launch arguments (see
-   [Launching](#launching)), and use the actions and services from your nodes (see
+3. For other languages, computers or models, find your case in
+   [What to launch](#what-to-launch), and use the actions and services from your nodes (see
    [Actions](#actions) and [Services](#services)).
+
+## What to launch
+
+Find your case and copy the command. The arguments can be combined, e.g.
+`backend:=ollama language:=en stt:=faster_whisper`.
+
+| I want... | Command (`ros2 launch simple_hri simple_hri.launch.py` + ...) |
+| --- | --- |
+| Everything on this computer, free, in Spanish | *(nothing: the default)* |
+| The conversation in English | `language:=en` |
+| A computer without an NVIDIA GPU | `backend:=ollama` (Ollama answers in about 2 s on the CPU), or `llm_device:=cpu yesno:=keywords` (no Ollama, but Extract takes 10-30 s) |
+| Several things in one sentence (a drink, a dish and a dessert in one order) | `backend:=ollama` (`qwen2.5:7b` separates them; the local model mixes them up) |
+| The LLM on a server of the lab | `backend:=ollama ollama_host:=server` (see [3b](#3b-use-ollama-on-a-server)) |
+| Better listening in a noisy room | `stt:=faster_whisper` |
+| Another voice | `piper_voice:=es_ES-davefx-medium`, or the other speaker of the default one: `piper_speaker:=1` |
+| Yes/no without an LLM, instantly (simple answers only) | `yesno:=keywords` |
+| A GPU with 8 GB or more: everything on the GPU, bigger models | `stt_device:=gpu whisper_model:=medium local_model:=Qwen/Qwen2.5-3B-Instruct` |
+| Better transcriptions (paid), everything else local | `stt:=openai` (with `OPENAI_API_KEY`) |
+| Everything in the cloud (paid) | `backend:=cloud` (with `OPENAI_API_KEY` and `GOOGLE_APPLICATION_CREDENTIALS`) |
+| The models on this computer and the speakers on another one (e.g. the robot) | `tts_speaks:=false` here, and `run_interaction_services:=false` on the other one (see [Audio forwarding](#audio-forwarding)) |
+| See every argument, without launching anything | `--show-args` |
+
+When it starts, the launch prints which node, model and device each capability uses: check
+there that it is what you wanted.
+
+### What is running
+
+Each line of that summary is one node (one program). With `backend:=ollama`:
+
+```text
+simple_hri (es, backend ollama):
+  stt      stt_whisper         Whisper small                        CPU
+  tts      tts_piper           Piper (voice of the language)        CPU
+  extract  extract_ollama      qwen2.5:7b                           Ollama (ollama ps: CPU or GPU)
+  yesno    yesno_ollama        qwen2.5:7b                           Ollama (ollama ps: CPU or GPU)
+```
+
+`extract_ollama` and `yesno_ollama` load no model: they send each sentence to the Ollama
+server, which runs the model where it decides. To follow what is running:
+
+| To see... | Run |
+| --- | --- |
+| Which nodes are running | `ros2 node list` (`/stt_service_node`, `/tts_service_node`, `/extract_service_node`, `/yesno_service_node`, or `/llm_local_node`) |
+| What each node does | The terminal of the launch: every line starts with its node, e.g. `[stt_whisper-1]` |
+| A parameter of a node | `ros2 param get /stt_service_node device` |
+| Where the Ollama model runs | `ollama ps`, on the Ollama computer: `PROCESSOR` is `100% GPU`, `100% CPU` or both |
+| What uses the GPU | `nvidia-smi`: with `backend:=local`, the process of `llm_local`; with `backend:=ollama`, only Ollama (if its model fits) |
+| That the capabilities answer | `ros2 action list` and `ros2 service list` (see [Testing](#testing)) |
 
 ## Launching
 
@@ -87,6 +136,13 @@ ros2 launch simple_hri simple_hri.launch.py backend:=<backend> [other arguments]
 It starts the two actions (`/stt_action`, `/tts_action`) and the two services
 (`/extract_service`, `/yesno_service`). The interfaces are the same with every backend, so
 your client does not change.
+
+Each capability (listen, speak, extract, yes/no) can be done by several **engines**: Whisper
+or OpenAI to listen, Piper or Google to speak... There are two levels of arguments:
+
+- `backend` chooses a set of engines for the four capabilities at once (table below).
+- `stt`, `tts`, `extract` and `yesno` change the engine of **one** capability. Their default,
+  `backend`, means "the one of the set" (see [Mixing engines](#mixing-engines)).
 
 ### Backends
 
@@ -104,41 +160,44 @@ Two more local engines can be used with any backend: faster-whisper for STT
 (`stt:=faster_whisper`) and MMS-TTS for TTS (`tts:=mms`, the default before Piper); see
 [faster-whisper and Piper](#faster-whisper-and-piper).
 
-Each service can also use a backend different from the one of `backend`, with the arguments
-`stt`, `tts`, `extract` and `yesno` (see [Mixing backends](#mixing-backends)).
+Each capability can also use an engine different from the one of `backend`, with the
+arguments `stt`, `tts`, `extract` and `yesno` (see [Mixing engines](#mixing-engines)).
 
 The environment variables (`HF_TOKEN`, `OPENAI_API_KEY`...) must be exported **in the
 terminal where you launch** (or in your `~/.bashrc`). The nodes read them at startup.
 
 ### Launch arguments
 
-They are grouped as in the launch file: which backend each service uses, which models,
-where the local models run, and audio and servers.
+They are grouped as in the launch file: which engines, which models, where the local models
+run, and audio and servers. Two values have a meaning of their own: `backend` (the engine of
+the set chosen with `backend`) and `auto` (the nodes decide, as described).
 
-**1. Backend of each service**
+**1. Which engines**
+
+`backend` chooses a set of engines for the four capabilities at once; `stt`, `tts`, `extract`
+and `yesno` change the engine of only one of them (see [Mixing engines](#mixing-engines)).
 
 | Argument | Default | Description |
 | --- | --- | --- |
 | `backend` | `local` | `local`, `ollama`, `hf` or `cloud` (see [Backends](#backends)) |
 | `language` | `es` | Language of the conversation: `es` (Spanish) or `en` (English). It sets the language of STT, the TTS voice, the prompts and the word lists |
-| `stt` | from `backend` | `whisper` (local), `faster_whisper` (local) or `openai` |
-| `tts` | from `backend` | `mms` (local), `piper` (local) or `google` |
-| `extract` | from `backend` | `local`, `ollama`, `hf` or `openai` |
-| `yesno` | from `backend` | `local`, `keywords` (word lists, no model), `ollama`, `hf` or `openai` |
+| `stt` | `backend` | `whisper` (local), `faster_whisper` (local) or `openai`. `backend` = the one of `backend` |
+| `tts` | `backend` | `piper` (local), `mms` (local) or `google`. `backend` = the one of `backend` |
+| `extract` | `backend` | `local`, `ollama`, `hf` or `openai`. `backend` = the one of `backend` |
+| `yesno` | `backend` | `local`, `keywords` (word lists, no model), `ollama`, `hf` or `openai`. `backend` = the one of `backend` |
 
 **2. Models**
 
 | Argument | Default | Description |
 | --- | --- | --- |
 | `whisper_model` | `small` | Local Whisper model: `tiny`, `base`, `small`, `medium`, `large`. Bigger is better and slower; `tiny` garbles Spanish phrases from a laptop microphone. faster-whisper uses it too (and accepts `large-v3`, `distil-large-v3`...) |
-| `tts_lang` | from `language` | MMS-TTS model: `facebook/mms-tts-<tts_lang>` (`spa`, `eng`, `fra`...). Google TTS ignores it |
-| `piper_voice` | `''` | Piper voice: a voice of the [Piper catalog](https://huggingface.co/rhasspy/piper-voices) (`es_ES-davefx-medium`), a file name in `models/` or an absolute path to its `.onnx`. Empty = `es_ES-sharvard-medium` or `en_US-lessac-medium`, from `language` |
+| `piper_voice` | `auto` | Piper voice: a voice of the [Piper catalog](https://huggingface.co/rhasspy/piper-voices) (`es_ES-davefx-medium`), a file name in `models/` or an absolute path to its `.onnx`. `auto` = `es_ES-sharvard-medium` or `en_US-lessac-medium`, from `language` |
 | `piper_speaker` | `-1` | Speaker of a multi-speaker Piper voice (`es_ES-sharvard-medium` has 0 and 1). `-1` = the voice's default |
 | `local_model` | `Qwen/Qwen2.5-1.5B-Instruct` | Hugging Face model of the local LLM (Extract and Yes/No) |
 | `ollama_model` | `qwen2.5:7b` | Ollama model for Extract and Yes/No. It must be downloaded on the server (`ollama pull`). The smallest that separates several categories in one sentence (see [Choosing a model](#2-download-a-model)) |
 | `hf_model` | `meta-llama/Meta-Llama-3-8B-Instruct` | Hugging Face model for Extract and Yes/No |
 | `openai_model` | `gpt-4.1-mini` | OpenAI model for Extract and Yes/No |
-| `prompt_file` | `prompts_<language>.yaml` | Prompts of Extract and Yes/No: a file in `params/` or an absolute path (see [Prompts](#prompts)) |
+| `prompt_file` | `auto` | Prompts of Extract and Yes/No: a file in `params/` or an absolute path (see [Prompts](#prompts)). `auto` = `prompts_<language>.yaml` |
 
 **3. Where the local models run**
 
@@ -152,25 +211,24 @@ where its model runs.
 | `stt_device` | `cpu` | Whisper and faster-whisper. On the CPU, `small` takes about 2 s per phrase |
 | `tts_device` | `gpu` | MMS-TTS (`tts:=mms`). Piper always runs on the CPU |
 | `llm_device` | `gpu` | The local LLM (`backend:=local`). On the CPU it takes several seconds per request |
-| `use_gpu` | `true` | `false`: every local model on the CPU, whatever the `*_device` arguments say |
 
 **4. Audio and servers**
 
 | Argument | Default | Description |
 | --- | --- | --- |
 | `tts_speaks` | `true` | `true`: TTS plays the audio on this computer. `false`: it sends the file to `/trigger_audio_send` |
-| `audio_player` | `''` | Command used to play audio (`aplay -q`, `pw-play`, `paplay`). Empty = the first one installed |
+| `audio_player` | `auto` | Command used to play audio (`aplay -q`, `pw-play`, `paplay`). `auto` = the first one installed |
 | `run_interaction_services` | `true` | `true`: STT, TTS, Extract and Yes/No. `false`: only the audio forwarding nodes (see [Audio forwarding](#audio-forwarding)) |
-| `ollama_host` | `''` | Ollama server (`localhost:11434`, `server`, `http://server:11434`). Empty = `OLLAMA_HOST` or `localhost:11434` |
-| `ollama_keep_alive` | `''` | How long Ollama keeps the model loaded (`1h`, `-1` = forever). Empty = server default (5 minutes) |
+| `ollama_host` | `auto` | Ollama server (`localhost:11434`, `server`, `http://server:11434`). `auto` = `OLLAMA_HOST` or `localhost:11434` |
+| `ollama_keep_alive` | `auto` | How long Ollama keeps the model loaded (`1h`, `-1` = forever). `auto` = server default (5 minutes) |
 
 `ros2 launch simple_hri simple_hri.launch.py --show-args` lists them too. When it starts,
-the launch prints the node, the model and the device of each service:
+the launch prints the node, the model and the device of each capability:
 
 ```text
-simple_hri (es):
+simple_hri (es, backend local):
   stt      stt_whisper         Whisper small                        CPU
-  tts      tts_mms             facebook/mms-tts-spa                 GPU if there is one
+  tts      tts_piper           Piper (voice of the language)        CPU
   extract  llm_local           Qwen/Qwen2.5-1.5B-Instruct           GPU if there is one
   yesno    llm_local           Qwen/Qwen2.5-1.5B-Instruct           GPU if there is one
 ```
@@ -199,7 +257,7 @@ Everything runs on your computer, with no account and no cost.
 ros2 launch simple_hri simple_hri.launch.py
 ```
 
-| Service | Node | Model |
+| Capability | Node | Model |
 | --- | --- | --- |
 | STT | `stt_whisper` | Whisper `small`, on the CPU (`stt_device`) |
 | TTS | `tts_piper` | Piper voice `es_ES-sharvard-medium` (`en_US-lessac-medium` with `language:=en`), on the CPU |
@@ -247,7 +305,7 @@ or on a server. Free, and the best quality without paying.
 ros2 launch simple_hri simple_hri.launch.py backend:=ollama
 ```
 
-| Service | Node | Model |
+| Capability | Node | Model |
 | --- | --- | --- |
 | STT | `stt_whisper` | Whisper `small` |
 | TTS | `tts_piper` | Piper voice `es_ES-sharvard-medium` (`en_US-lessac-medium` with `language:=en`) |
@@ -278,7 +336,7 @@ export HF_TOKEN="hf_..."
 ros2 launch simple_hri simple_hri.launch.py backend:=hf
 ```
 
-| Service | Node | Model |
+| Capability | Node | Model |
 | --- | --- | --- |
 | STT | `stt_whisper` | Whisper `small` |
 | TTS | `tts_piper` | Piper voice `es_ES-sharvard-medium` (`en_US-lessac-medium` with `language:=en`) |
@@ -311,7 +369,7 @@ export GOOGLE_APPLICATION_CREDENTIALS="/path/to/the/key.json"
 ros2 launch simple_hri simple_hri.launch.py backend:=cloud
 ```
 
-| Service | Node | Model |
+| Capability | Node | Model |
 | --- | --- | --- |
 | STT | `stt_openai` | OpenAI `whisper-1` |
 | TTS | `tts_google` | Google Cloud TTS, voice `es-ES-Neural2-F` (`en-US-Neural2-D` with `language:=en`) |
@@ -401,9 +459,9 @@ transcribes it in 0.36-0.41 s on the GPU and 1.1-1.3 s on the CPU (Whisper `smal
 | | `noise_scale` | `-1.0` | Variation of the voice (more expressive above the voice's value, flatter below). Negative = the voice's value |
 | | `noise_w_scale` | `-1.0` | Variation of the phoneme durations (rhythm). Negative = the voice's value |
 
-### Mixing backends
+### Mixing engines
 
-`stt`, `tts`, `extract` and `yesno` choose the backend of one service and override the one of
+`stt`, `tts`, `extract` and `yesno` choose the engine of one capability, instead of the one of
 `backend`:
 
 ```bash
@@ -415,7 +473,7 @@ ros2 launch simple_hri simple_hri.launch.py backend:=cloud tts:=mms
 ros2 launch simple_hri simple_hri.launch.py extract:=ollama yesno:=ollama ollama_host:=server
 ```
 
-Each service needs only the keys of its own backend (`stt:=openai` needs `OPENAI_API_KEY`,
+Each capability needs only the keys of its own engine (`stt:=openai` needs `OPENAI_API_KEY`,
 but not the Google credentials). The nodes can also be run one by one with `ros2 run` (see
 [Nodes](#nodes)).
 
@@ -512,7 +570,7 @@ machine. STT and TTS do not use Ollama: they always run on the computer where yo
  your computer                                   Ollama server (the same computer or another one)
  ┌──────────────────────────────────┐            ┌───────────────────────────────┐
  │ stt_whisper   (Whisper)          │            │ ollama serve  (port 11434)    │
- │ tts_mms       (MMS-TTS)          │   HTTP     │   └─ model on the GPU         │
+ │ tts_piper     (Piper)            │   HTTP     │   └─ model on the GPU         │
  │ extract_ollama  ─────────────────┼───────────►│      (qwen2.5:7b, gemma3...)  │
  │ yesno_ollama    ─────────────────┼───────────►│                               │
  └──────────────────────────────────┘            └───────────────────────────────┘
@@ -658,7 +716,7 @@ ros2 launch simple_hri simple_hri.launch.py backend:=ollama ollama_host:=server 
 ```
 
 Instead of `ollama_host`, you can `export OLLAMA_HOST=server:11434`: the nodes use it when
-`ollama_host` is empty, and so does the `ollama` command (`ollama list` shows then the
+`ollama_host` is `auto` (the default), and so does the `ollama` command (`ollama list` shows then the
 models of the server).
 
 **Server settings.** Other variables of the service, added in the same `[Service]` section:
@@ -704,8 +762,8 @@ At startup the nodes check that the server is reachable and that it has the mode
 how to fix it otherwise (`ollama pull <model>`). They start anyway, and the requests return
 `ERROR: ...` until the server is available.
 
-To combine Ollama with other STT and TTS backends, use the per-service arguments (see
-[Mixing backends](#mixing-backends)), e.g. `extract:=ollama yesno:=ollama stt:=openai`.
+To combine Ollama with other STT and TTS engines, use the arguments of each capability (see
+[Mixing engines](#mixing-engines)), e.g. `extract:=ollama yesno:=ollama stt:=openai`.
 
 ## Actions
 
@@ -787,17 +845,35 @@ future = yesno_client.call_async(request)
 
 ### Audio forwarding
 
+The models can run on one computer and the robot speak through the speakers of another one
+(for example, the robot itself), in the same ROS 2 network (`ROS_DOMAIN_ID`):
+
+```bash
+# Computer with the models
+ros2 launch simple_hri simple_hri.launch.py tts_speaks:=false
+# Computer with the speakers
+ros2 launch simple_hri simple_hri.launch.py run_interaction_services:=false
+```
+
+```text
+ computer with the models                              computer with the speakers
+ tts_* ──WAV file──► audio_service ──/audio_file_data──► audio_file_player ──► speakers
+        /trigger_audio_send          (UInt8MultiArray)
+```
+
 With `tts_speaks:=false`, TTS does not play the WAV file: it calls `/trigger_audio_send`
-(`audio_send_interfaces/srv/SendAudio`, with the file path). `audio_service` serves it: it
-reads the file and publishes its bytes on `/audio_file_data` (`std_msgs/msg/UInt8MultiArray`),
-and `audio_file_player`, on the machine with the speakers, plays them.
-`run_interaction_services:=false` launches these two nodes.
+(`audio_send_interfaces/srv/SendAudio`, with the file path). `audio_service`, launched on the
+same computer because it reads the file, publishes its bytes on `/audio_file_data`
+(`std_msgs/msg/UInt8MultiArray`). On the other computer, `run_interaction_services:=false`
+launches only `audio_file_player`, which plays them. The Say action cannot stop the audio
+in this mode.
 
 ## Nodes
 
-One node per service and backend, named `<service>_<backend>`:
+One node per capability and engine, named `<capability>_<engine>`. The launch file chooses
+and configures them; to run one by hand, see the end of the table.
 
-| Node | Service | Backend | Needs | Parameters |
+| Node | Capability | Engine | Needs | Parameters |
 | --- | --- | --- | --- | --- |
 | `stt_whisper` | STT | Whisper, local | - | `model` (`small`), `language` (`es`), `device` (`cpu`, `cuda` or `auto`) |
 | `stt_faster_whisper` | STT | faster-whisper with Silero VAD, local | - | `model` (`small`), `language` (`es`), `device` (`cpu`, `cuda` or `auto`), `compute_type` (see [faster-whisper and Piper](#faster-whisper-and-piper)) |
@@ -907,7 +983,7 @@ ros2 service list | grep -E "(extract|yesno)"
 The local models do not fit in the GPU. With the defaults, only the local LLM uses the GPU
 (about 3.1 GB). `stt_device:=gpu` adds Whisper (about 1.5 GB with `small`) and `tts:=mms`
 adds MMS-TTS (about 0.3 GB), which do not fit in a 4 GB GPU with the LLM; another program
-using the GPU can also make it fail. Use `llm_device:=cpu` or `use_gpu:=false` (slow), a
+using the GPU can also make it fail. Use `llm_device:=cpu` (slow), a
 smaller `local_model`, or move the LLM to Ollama (`backend:=ollama`).
 
 ### STT does not hear anything ("No se detectó audio o timeout")
