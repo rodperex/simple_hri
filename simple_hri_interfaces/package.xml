@@ -2,9 +2,9 @@
 <package format="3">
   <name>simple_hri_interfaces</name>
   <version>0.0.1</version>
-  <description>Interfaces (srv y action) para simple_hri</description>
+  <description>Action and service interfaces of simple_hri: Listen, Say, Extract and YesNo</description>
 
-  <maintainer email="tu@email.com">Tu Nombre</maintainer>
+  <maintainer email="rodrigo.perez@urjc.es">Rodrigo Pérez-Rodríguez</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

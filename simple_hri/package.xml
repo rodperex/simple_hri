@@ -4,7 +4,7 @@
   <version>0.0.1</version>
   <description>Simple speech-to-text and text-to-speech services for HRI.</description>
 
-  <maintainer email="rodrigo.perez@urjc.es">ROI</maintainer>
+  <maintainer email="rodrigo.perez@urjc.es">Rodrigo Pérez-Rodríguez</maintainer>
   <license>Apache-2.0</license>
 
   <export>
