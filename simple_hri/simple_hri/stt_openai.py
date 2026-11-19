@@ -19,7 +19,6 @@ import rclpy
 import wave
 import numpy as np
 import sounddevice as sd
-import webrtcvad
 from rclpy.node import Node
 from std_msgs.msg import String
 import openai
@@ -27,14 +26,11 @@ import threading
 import time
 
 from simple_hri.stt_filter import is_hallucination
+from simple_hri.vad_phrase import (
+    ENDED, FRAME_SAMPLES, PhraseDetector, SAMPLE_RATE, STARTED, TOO_LONG, WAITING)
 from simple_hri.voice_actions import ListenActionServer, spin_multithreaded
 
-# Parámetros
-SAMPLE_RATE = 16000
-FRAME_DURATION = 30
 CHANNELS = 1
-VAD_SENSITIVITY = 2  # 0=muy permisivo (ruido = voz, nunca corta), 3=muy estricto
-SILENCE_DURATION = 1.5
 MAX_WAIT_SECONDS = 10.0  # Tiempo máximo esperando a que alguien empiece a hablar
 
 class STTService(Node):
@@ -46,6 +42,12 @@ class STTService(Node):
         # Discard what Whisper invents from noise (see stt_filter); false only to debug
         self.declare_parameter('hallucination_filter', True)
         self.hallucination_filter = self.get_parameter('hallucination_filter').value
+        # Phrase detection (see vad_phrase)
+        self.declare_parameter('vad_mode', 2)  # webrtcvad: 0 (takes noise for voice) to 3
+        self.declare_parameter('noise_margin', 6.0)  # dB above the background that is voice
+        self.declare_parameter('grace_period', 1.5)  # s of silence that end the phrase
+        self.declare_parameter('max_phrase_secs', 15.0)  # s, longest phrase recorded
+        self.declare_parameter('pre_record', 0.5)  # s of audio kept before the voice
 
         self.api_key = os.getenv("OPENAI_API_KEY")
         if not self.api_key:
@@ -57,59 +59,66 @@ class STTService(Node):
 
         self.get_logger().info('✅ STTService con Whisper API inicializado')
 
-        # Inicializar el detector de actividad de voz (VAD)
-        self.vad = webrtcvad.Vad()
-        self.vad.set_mode(VAD_SENSITIVITY)
-
         # Acción /stt_action. El cerrojo evita que dos objetivos usen el micrófono a la vez.
         self.mic_lock = threading.Lock()
         self.last_record_timed_out = False
         self.listen_action = ListenActionServer(self, self.listen, self.mic_lock)
 
     def record_audio_with_vad(self, max_wait=MAX_WAIT_SECONDS, should_stop=None, on_status=None):
-        # should_stop() se consulta en cada fragmento para poder cancelar, y on_status()
-        # informa de la fase ("listening", "speech_detected"). Ambos son opcionales.
-        self.get_logger().info('🎙 Esperando detección de voz...')
-        if on_status:
-            on_status('listening')
-
-        audio_buffer = []
-        last_voice_time = None
+        """
+        Record one phrase (see vad_phrase): wait for voice (at most max_wait s), then record
+        until grace_period s of silence or max_phrase_secs. Returns int16 audio, empty on
+        timeout or cancellation. should_stop() is checked on every frame and on_status()
+        reports the stage ("listening", "speech_detected"); both are optional.
+        """
+        p = self.get_parameter
+        detector = PhraseDetector(
+            vad_mode=p('vad_mode').value, noise_margin=p('noise_margin').value,
+            grace_period=p('grace_period').value, max_phrase_secs=p('max_phrase_secs').value,
+            pre_record=p('pre_record').value)
         start_wait_time = time.time()
         self.last_record_timed_out = False
 
-        stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=np.int16)
-        with stream:
-            while True:
-                if should_stop and should_stop():
-                    self.get_logger().info('⏹ Grabación cancelada.')
-                    return np.array([])
+        self.get_logger().info('🎙 Listening... (speak now)')
+        if on_status:
+            on_status('listening')
 
-                frame, _ = stream.read(int(SAMPLE_RATE * FRAME_DURATION / 1000))
-                frame_bytes = frame.tobytes()
+        try:
+            with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype='int16') as stream:
+                while True:
+                    if should_stop and should_stop():
+                        self.get_logger().info('⏹ Recording canceled.')
+                        return np.array([])
 
-                is_speech = self.vad.is_speech(frame_bytes, SAMPLE_RATE)
+                    frame, overflow = stream.read(FRAME_SAMPLES)
+                    if overflow:
+                        self.get_logger().warning('⚠️ Audio overflow')
+                    event = detector.add(frame)
 
-                if is_speech:
-                    if last_voice_time is None:
-                        self.get_logger().info('🔊 ¡Detección de voz iniciada! Comenzando grabación...')
+                    if event == STARTED:
+                        self.get_logger().info(
+                            f'🔊 Voice detected (background {detector.background_db:.0f} dBFS), '
+                            'recording...')
                         if on_status:
                             on_status('speech_detected')
-                    last_voice_time = time.time()
-                    audio_buffer.append(frame)
-                elif last_voice_time is not None and time.time() - last_voice_time > SILENCE_DURATION:
-                    self.get_logger().info('🛑 Se detectó silencio prolongado. Terminando grabación.')
-                    break
-                elif last_voice_time is None and time.time() - start_wait_time > max_wait:
-                    self.get_logger().info('⏰ Timeout: no se detectó voz.')
-                    self.last_record_timed_out = True
-                    break
+                    elif event == WAITING and time.time() - start_wait_time > max_wait:
+                        self.get_logger().info(
+                            f'⏰ Timeout: nobody spoke (background {detector.background_db:.0f} '
+                            'dBFS).')
+                        self.last_record_timed_out = True
+                        return np.array([])
+                    elif event == ENDED:
+                        self.get_logger().info('🛑 End of the phrase.')
+                        break
+                    elif event == TOO_LONG:
+                        self.get_logger().info('🛑 Longest phrase reached.')
+                        break
 
-        if audio_buffer:
-            audio_data = np.concatenate(audio_buffer, axis=0)
-            return audio_data
-        else:
+        except Exception as e:
+            self.get_logger().error(f'❌ Microphone error: {e}')
             return np.array([])
+
+        return detector.phrase()
 
     def transcribe(self, audio_data):
         """Transcribe el audio con la API de Whisper y publica el texto en /listened_text."""

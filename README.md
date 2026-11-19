@@ -216,6 +216,7 @@ where its model runs.
 
 | Argument | Default | Description |
 | --- | --- | --- |
+| `noise_margin` | `6.0` | dB above the background noise that a voice needs to be heard (`stt` `whisper` and `openai`). Higher: less noise taken for voice, but the person must speak louder or closer (see [STT does not hear anything](#stt-does-not-hear-anything-no-se-detectó-audio-o-timeout)) |
 | `tts_speaks` | `true` | `true`: TTS plays the audio on this computer. `false`: it sends the file to `/trigger_audio_send` |
 | `audio_player` | `auto` | Command used to play audio (`aplay -q`, `pw-play`, `paplay`). `auto` = the first one installed |
 | `run_interaction_services` | `true` | `true`: STT, TTS, Extract and Yes/No. `false`: only the audio forwarding nodes (see [Audio forwarding](#audio-forwarding)) |
@@ -779,7 +780,15 @@ never use the microphone or the speakers at once).
 - **Feedback:** `status`: `listening`, `speech_detected`, `transcribing`.
 - **Result:** `success`, `timed_out` (nobody spoke), `text`, `message`. The text is also
   published on `/listened_text` (`std_msgs/msg/String`). It records until 1 s of silence
-  (1.5 s with the cloud backend), in the language of the launch (`language`).
+  (1.5 s with the cloud backend, 0.8 s with faster-whisper) or 15 s, in the language of the
+  launch (`language`).
+- **Noisy rooms:** webrtcvad (the voice detector of `stt_whisper` and `stt_openai`) takes
+  room noise for voice: in a classroom with people talking in groups it marks every frame as
+  voice, and the phrase never ended. Now (`simple_hri/vad_phrase.py`) a frame is voice only
+  if it is also `noise_margin` dB (default 6) louder than the background, measured while
+  waiting for the person; the phrase starts when most of 0.3 s is voice and ends when little
+  of the last second is (a click or somebody else's word does not keep it open), and it
+  never lasts more than 15 s. The person must speak closer to the microphone than the noise.
 - **Noise is not speech:** with noise or silence, Whisper often invents a sentence
   ("¡Suscríbete!", "Subtítulos por la comunidad de Amara.org"). Those transcriptions are
   discarded (`simple_hri/stt_filter.py`): the segments that Whisper itself rates as probably
@@ -881,9 +890,9 @@ and configures them; to run one by hand, see the end of the table.
 
 | Node | Capability | Engine | Needs | Parameters |
 | --- | --- | --- | --- | --- |
-| `stt_whisper` | STT | Whisper, local | - | `model` (`small`), `language` (`es`), `device` (`cpu`, `cuda` or `auto`), `hallucination_filter` (`true`) |
+| `stt_whisper` | STT | Whisper, local | - | `model` (`small`), `language` (`es`), `device` (`cpu`, `cuda` or `auto`), `hallucination_filter` (`true`), `noise_margin` (`6.0`), `grace_period` (`1.0`), `max_phrase_secs` (`15.0`), `vad_mode` (`2`) |
 | `stt_faster_whisper` | STT | faster-whisper with Silero VAD, local | - | `model` (`small`), `language` (`es`), `device` (`cpu`, `cuda` or `auto`), `compute_type` (see [faster-whisper and Piper](#faster-whisper-and-piper)), `hallucination_filter` (`true`) |
-| `stt_openai` | STT | OpenAI `whisper-1` | `OPENAI_API_KEY` + credits | `language` (`es`), `hallucination_filter` (`true`; only the known phrases, the API gives no no-speech probability) |
+| `stt_openai` | STT | OpenAI `whisper-1` | `OPENAI_API_KEY` + credits | `language` (`es`), `hallucination_filter` (`true`; only the known phrases, the API gives no no-speech probability), `noise_margin` (`6.0`), `grace_period` (`1.5`), `max_phrase_secs` (`15.0`), `vad_mode` (`2`) |
 | `tts_mms` | TTS | `facebook/mms-tts-<lang_code>`, local | - | `lang_code`, `volume`, `use_gpu`, `play_sound`, `audio_player` |
 | `tts_piper` | TTS | Piper voice, local (CPU) | - | `lang_code` (`es`/`en`), `voice`, `speaker`, `models_dir`, `volume`, `length_scale`, `noise_scale`, `noise_w_scale`, `play_sound`, `audio_player` |
 | `tts_google` | TTS | Google Cloud TTS | `GOOGLE_APPLICATION_CREDENTIALS` + billing | `language` (`en`), `voice` (from `language`), `play_sound`, `audio_player` |
@@ -996,9 +1005,13 @@ smaller `local_model`, or move the LLM to Ollama (`backend:=ollama`).
 
 Look at the log of the launch:
 
-- `Timeout`: nobody spoke within 10 s, or the microphone is muted or not the selected one
-  (desktop sound settings).
-- `Error micrófono ... Invalid sample rate`: the microphone cannot be opened at 16 kHz. It
+- `Timeout: nobody spoke (background -26 dBFS)`: nobody spoke within 10 s, or the microphone
+  is muted or not the selected one (desktop sound settings), or the voice was not
+  `noise_margin` dB louder than the background. With background noise (a class working in
+  groups is about -26 dBFS with a laptop microphone), speak closer to the microphone, or
+  lower the margin: `noise_margin:=4.0` (more noise is then taken for voice). If noise is
+  taken for voice and the phrase does not end until 15 s, raise it: `noise_margin:=8.0`.
+- `Microphone error ... Invalid sample rate`: the microphone cannot be opened at 16 kHz. It
   happens in conda/pixi environments, whose own ALSA library does not see PipeWire or
   PulseAudio and opens the raw sound card. Point it to the system configuration and plugins:
 
@@ -1037,6 +1050,7 @@ simple_hri/
 │   ├── simple_hri/               # Nodes: <service>_<backend>.py
 │   │   ├── llm_local.py          # Local LLM: Extract and Yes/No with one model
 │   │   ├── stt_faster_whisper.py # STT with faster-whisper and Silero VAD
+│   │   ├── vad_phrase.py         # Phrase detection with webrtcvad (stt_whisper, stt_openai)
 │   │   ├── tts_piper.py          # TTS with Piper voices (and download_voice)
 │   │   ├── prompts.py            # Prompt loading and answer cleaning shared by the LLM backends
 │   │   ├── ollama_llm.py         # Ollama client shared by the *_ollama nodes
