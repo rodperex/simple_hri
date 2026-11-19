@@ -13,8 +13,8 @@ interface, so a client works with any of them. A single launch file starts them:
 ## Features
 
 - **STT** (action): listens to the microphone, detects voice (VAD), records until silence and
-  transcribes it. Engines: local Whisper, local faster-whisper (with Silero VAD) or the
-  OpenAI API.
+  transcribes it, also in a noisy room (`background_noise`). Engines: local Whisper, local
+  faster-whisper (with Silero VAD) or the OpenAI API.
 - **TTS** (action): synthesizes a text and plays it (or sends it to another device). Engines: local
   `facebook/mms-tts-*` models, local Piper voices or Google Cloud.
 - **Extract** (service): given a text and an *interest* (e.g. "bebida"), returns only the relevant
@@ -91,7 +91,8 @@ Find your case and copy the command. The arguments can be combined, e.g.
 | A computer without an NVIDIA GPU | `backend:=ollama` (Ollama answers in about 2 s on the CPU), or `llm_device:=cpu yesno:=keywords` (no Ollama, but Extract takes 10-30 s) |
 | Several things in one sentence (a drink, a dish and a dessert in one order) | `backend:=ollama` (`qwen2.5:7b` separates them; the local model mixes them up) |
 | The LLM on a server of the lab | `backend:=ollama ollama_host:=server` (see [3b](#3b-use-ollama-on-a-server)) |
-| Better listening in a noisy room | `stt:=faster_whisper` |
+| Noise taken for voice (people talking around): it starts recording with nobody speaking | `background_noise:=high` (see [How listening works in a noisy room](#how-listening-works-in-a-noisy-room)) |
+| It does not hear a person who speaks softly or far from the microphone | `background_noise:=low` |
 | Another voice | `piper_voice:=es_ES-davefx-medium`, or the other speaker of the default one: `piper_speaker:=1` |
 | Yes/no without an LLM, instantly (simple answers only) | `yesno:=keywords` |
 | A GPU with 8 GB or more: everything on the GPU, bigger models | `stt_device:=gpu whisper_model:=medium local_model:=Qwen/Qwen2.5-3B-Instruct` |
@@ -216,7 +217,7 @@ where its model runs.
 
 | Argument | Default | Description |
 | --- | --- | --- |
-| `background_noise` | `medium` | Noise of the room while listening (every `stt` engine): `low`, `medium` or `high` (4, 6 or 8 dB that a voice needs above the background; the values are in `BACKGROUND_NOISE`, in the launch file), or a number of dB. Higher: less noise taken for voice, but the person must speak louder or closer (see [STT does not hear anything](#stt-does-not-hear-anything-no-se-detectó-audio-o-timeout)) |
+| `background_noise` | `medium` | Noise of the room while listening (every `stt` engine): `low`, `medium` or `high` (4, 6 or 8 dB that a voice needs above the background; the values are in `BACKGROUND_NOISE`, in the launch file), or a number of dB. Higher: less noise taken for voice, but the person must speak louder or closer (see [How listening works in a noisy room](#how-listening-works-in-a-noisy-room)) |
 | `tts_speaks` | `true` | `true`: TTS plays the audio on this computer. `false`: it sends the file to `/trigger_audio_send` |
 | `audio_player` | `auto` | Command used to play audio (`aplay -q`, `pw-play`, `paplay`). `auto` = the first one installed |
 | `run_interaction_services` | `true` | `true`: STT, TTS, Extract and Yes/No. `false`: only the audio forwarding nodes (see [Audio forwarding](#audio-forwarding)) |
@@ -780,23 +781,12 @@ never use the microphone or the speakers at once).
 - **Goal:** `max_wait`: seconds to wait for the person to start speaking (`0` = default, 10 s).
 - **Feedback:** `status`: `listening`, `speech_detected`, `transcribing`.
 - **Result:** `success`, `timed_out` (nobody spoke), `text`, `message`. The text is also
-  published on `/listened_text` (`std_msgs/msg/String`). It records until 1 s of silence
-  (1.5 s with the cloud backend, 0.8 s with faster-whisper), in the language of the
-  launch (`language`).
-- **Noisy rooms:** a voice detector alone (webrtcvad in `stt_whisper` and `stt_openai`,
-  Silero in `stt_faster_whisper`) takes room noise for voice: in a classroom with people
-  talking in groups webrtcvad marked every frame as voice, and the phrase never ended. Now
-  (`simple_hri/vad_phrase.py`, the three nodes) a frame is voice only if it is also louder
-  than the background (the level above 100 Hz, so that the rumble of an engine, a fan or a
-  vibrating table does not count), measured while waiting for the person:
-  `noise_margin` dB to start the phrase (launch argument `background_noise`: `low` 4,
-  `medium` 6, `high` 8), half of it to go on. The phrase starts when most of 0.3 s is voice
-  and ends after about 1 s with almost no voice (a click does not keep it open; a shorter
-  pause to think does not end it). While the person keeps speaking it keeps listening, even
-  a long answer; `max_phrase_secs` (60 s, `0` = no limit) is only a safety net if noise
-  keeps the phrase open. The person must speak closer to the microphone than the noise.
-  The microphone stays open while Whisper transcribes: if what it heard was not speech (see
-  below), what the person said meanwhile is not lost.
+  published on `/listened_text` (`std_msgs/msg/String`), in the language of the launch
+  (`language`).
+- **When it stops:** the phrase ends after about 1 s with almost no voice (1.5 s with the
+  cloud backend, 0.8 s with faster-whisper). While the person keeps speaking it keeps
+  listening, even a long answer. How it tells voice from noise, and how to adjust it to the
+  room: [How listening works in a noisy room](#how-listening-works-in-a-noisy-room).
 - **Noise is not speech:** with noise or silence, Whisper often invents a sentence
   ("¡Suscríbete!", "Subtítulos por la comunidad de Amara.org"). Those transcriptions are
   discarded (`simple_hri/stt_filter.py`): the segments that Whisper itself rates as probably
@@ -804,6 +794,68 @@ never use the microphone or the speakers at once).
   keeps listening for the rest of `max_wait`, so `timed_out` means that nobody really spoke.
   The parameter `hallucination_filter` of the STT nodes (default `true`) turns it off.
 - **Cancel:** stops recording immediately.
+
+### How listening works in a noisy room
+
+The three STT nodes (`stt_whisper`, `stt_faster_whisper`, `stt_openai`) find the phrase in
+the same way (`simple_hri/vad_phrase.py`). A voice detector alone (webrtcvad, or Silero in
+faster-whisper) is not enough: it takes people talking around, a fan or a car for voice, and
+the phrase never ends. So a sound counts as voice only if it is also **louder than the
+background noise**, which assumes that the person speaks closer to the microphone than the
+noise. Step by step:
+
+1. **It measures the background** while waiting for the person: the median level of the
+   last 3 s. It ignores what is below 100 Hz (the rumble of an engine, the hum of a fan, a
+   vibrating table), where there is hardly any voice.
+2. **The phrase starts** when, during 0.3 s, most of the sound is voice and is
+   `noise_margin` dB louder than the background. A click or a single word of somebody else
+   is not enough.
+3. **The phrase goes on** while there is voice at least half that margin above the
+   background: the voice of a person who keeps speaking varies, and must not be cut.
+4. **The phrase ends** after about 1 s with almost no voice (`grace_period`). A shorter
+   pause to think does not end it. `max_phrase_secs` (60 s; `0` = no limit) is only a
+   safety net in case noise keeps a phrase open.
+5. **Whisper transcribes it** while the microphone keeps listening. If it was not speech
+   (see *Noise is not speech* above), the node goes on with the phrase that may have started
+   meanwhile, and with the background it had already measured.
+
+**Adjusting it to the room.** The launch argument `background_noise` sets `noise_margin`
+in the three nodes:
+
+| `background_noise` | `noise_margin` | When |
+| --- | --- | --- |
+| `low` | 4 dB | Quiet room, or a person who speaks softly or far from the microphone. More noise is taken for voice |
+| `medium` (default) | 6 dB | Most rooms. Worked in a class working in groups and in a car |
+| `high` | 8 dB | People talking around and noise is taken for voice. The person must speak louder or closer to the microphone |
+
+```bash
+ros2 launch simple_hri simple_hri.launch.py background_noise:=high
+ros2 launch simple_hri simple_hri.launch.py background_noise:=7.0   # any number of dB
+ros2 run simple_hri stt_whisper --ros-args -p noise_margin:=8.0     # a node by hand
+```
+
+The values of the three levels are in `BACKGROUND_NOISE`, at the top of the launch file.
+
+**Calibrating.** Launch with the default and try it in the room where the robot will be.
+The log of the STT node says what it measured:
+
+| The log says | Meaning | What to do |
+| --- | --- | --- |
+| `Voice detected (background -24 dBFS)` when somebody speaks, and the answer is right | It works | Nothing |
+| `Voice detected` with nobody speaking, or `Discarded, not speech` / `Descartado, no es voz` | Noise is taken for voice | `background_noise:=high` |
+| `Timeout: nobody spoke (background ...)` although the person spoke | The voice did not stand out from the background | Speak closer to the microphone, or `background_noise:=low` |
+| A background close to 0 dBFS (e.g. `-3 dBFS`) | The microphone saturates | Lower its input volume in the sound settings |
+
+Measured with the microphone of a laptop: a class working in groups was -26 to -24 dBFS,
+and a car -18 dBFS; both worked with `medium` (in the car, `low` took noise for voice). In
+the car, with the laptop on the seat, the vibration saturated the microphone (-3 dBFS)
+until its input volume was lowered from 77% to 45%.
+
+**Node parameters** (the three STT nodes): `noise_margin` (6.0), `grace_period` (1.0;
+1.5 in `stt_openai`, 0.8 in `stt_faster_whisper`), `max_phrase_secs` (60.0), `pre_record`
+(0.5 s of audio kept before the voice, so that the first syllable is not cut). Only
+`stt_whisper` and `stt_openai`: `vad_mode` (2; webrtcvad, 0 takes more noise for voice and
+3 less). Only `stt_faster_whisper`: `vad_threshold` (0.5, Silero speech probability).
 
 ### Say
 
@@ -1013,16 +1065,10 @@ smaller `local_model`, or move the LLM to Ollama (`backend:=ollama`).
 
 Look at the log of the launch:
 
-- `Timeout: nobody spoke (background -26 dBFS)`: nobody spoke within 10 s, or the microphone
-  is muted or not the selected one (desktop sound settings), or the voice was not
-  louder enough than the background. Speak closer to the microphone, or launch with
-  `background_noise:=low` (more noise is then taken for voice). If noise is taken for
-  voice (`Voice detected` with nobody speaking, `Discarded, not speech`), use
-  `background_noise:=high` and speak close to the microphone. Measured with a laptop
-  microphone: a class working in groups (-26 to -24 dBFS) and a car (-18 dBFS) worked with
-  `medium`; in the car `low` took noise for voice. If the log shows a background close to
-  0 dBFS, the microphone saturates (e.g. a laptop on a vibrating surface): lower its input
-  volume in the sound settings.
+- `Timeout: nobody spoke (background -26 dBFS)`: nobody spoke within 10 s, the microphone
+  is muted or not the selected one (desktop sound settings), or the voice did not stand
+  out from the background noise: see [How listening works in a noisy
+  room](#how-listening-works-in-a-noisy-room), *Calibrating*.
 - `Microphone error ... Invalid sample rate`: the microphone cannot be opened at 16 kHz. It
   happens in conda/pixi environments, whose own ALSA library does not see PipeWire or
   PulseAudio and opens the raw sound card. Point it to the system configuration and plugins:
@@ -1062,7 +1108,7 @@ simple_hri/
 │   ├── simple_hri/               # Nodes: <service>_<backend>.py
 │   │   ├── llm_local.py          # Local LLM: Extract and Yes/No with one model
 │   │   ├── stt_faster_whisper.py # STT with faster-whisper and Silero VAD
-│   │   ├── vad_phrase.py         # Phrase detection with webrtcvad (stt_whisper, stt_openai)
+│   │   ├── vad_phrase.py         # Listening in a noisy room, shared by the three STT nodes
 │   │   ├── tts_piper.py          # TTS with Piper voices (and download_voice)
 │   │   ├── prompts.py            # Prompt loading and answer cleaning shared by the LLM backends
 │   │   ├── ollama_llm.py         # Ollama client shared by the *_ollama nodes
