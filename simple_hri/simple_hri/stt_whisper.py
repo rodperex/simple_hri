@@ -6,7 +6,6 @@
 import rclpy
 import numpy as np
 import sounddevice as sd
-import time
 import torch
 import whisper
 import threading
@@ -14,8 +13,7 @@ from rclpy.node import Node
 from std_msgs.msg import String
 
 from simple_hri.stt_filter import is_hallucination, keep_segment
-from simple_hri.vad_phrase import (
-    ENDED, FRAME_SAMPLES, PhraseDetector, SAMPLE_RATE, STARTED, TOO_LONG, WAITING)
+from simple_hri.vad_phrase import PhraseDetector, SAMPLE_RATE, listen, webrtc_speech
 from simple_hri.voice_actions import ListenActionServer, spin_multithreaded
 
 MAX_WAIT_SECONDS = 10.0  # longest wait for somebody to start speaking
@@ -64,66 +62,17 @@ class STTService(Node):
 
         # Acción /stt_action. El cerrojo evita que dos objetivos usen el micrófono a la vez.
         self.mic_lock = threading.Lock()
-        self.last_record_timed_out = False
         self.listen_action = ListenActionServer(self, self.listen, self.mic_lock)
         
         self.get_logger().info('✅ STTService inicializado y listo.')
 
-    def record_audio_with_vad(self, max_wait=MAX_WAIT_SECONDS, should_stop=None, on_status=None):
-        """
-        Record one phrase (see vad_phrase): wait for voice (at most max_wait s), then record
-        until grace_period s of silence or max_phrase_secs. Returns int16 audio, empty on
-        timeout or cancellation. should_stop() is checked on every frame and on_status()
-        reports the stage ("listening", "speech_detected"); both are optional.
-        """
+    def new_detector(self, background):
+        """Return a PhraseDetector with the parameters of the node (see vad_phrase)."""
         p = self.get_parameter
-        detector = PhraseDetector(
-            vad_mode=p('vad_mode').value, noise_margin=p('noise_margin').value,
+        return PhraseDetector(
+            webrtc_speech(p('vad_mode').value), noise_margin=p('noise_margin').value,
             grace_period=p('grace_period').value, max_phrase_secs=p('max_phrase_secs').value,
-            pre_record=p('pre_record').value)
-        start_wait_time = time.time()
-        self.last_record_timed_out = False
-
-        self.get_logger().info('🎙 Listening... (speak now)')
-        if on_status:
-            on_status('listening')
-
-        try:
-            with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype='int16') as stream:
-                while True:
-                    if should_stop and should_stop():
-                        self.get_logger().info('⏹ Recording canceled.')
-                        return np.array([])
-
-                    frame, overflow = stream.read(FRAME_SAMPLES)
-                    if overflow:
-                        self.get_logger().warning('⚠️ Audio overflow')
-                    event = detector.add(frame)
-
-                    if event == STARTED:
-                        self.get_logger().info(
-                            f'🔊 Voice detected (background {detector.background_db:.0f} dBFS), '
-                            'recording...')
-                        if on_status:
-                            on_status('speech_detected')
-                    elif event == WAITING and time.time() - start_wait_time > max_wait:
-                        self.get_logger().info(
-                            f'⏰ Timeout: nobody spoke (background {detector.background_db:.0f} '
-                            'dBFS).')
-                        self.last_record_timed_out = True
-                        return np.array([])
-                    elif event == ENDED:
-                        self.get_logger().info('🛑 End of the phrase.')
-                        break
-                    elif event == TOO_LONG:
-                        self.get_logger().info('🛑 Longest phrase reached.')
-                        break
-
-        except Exception as e:
-            self.get_logger().error(f'❌ Microphone error: {e}')
-            return np.array([])
-
-        return detector.phrase()
+            pre_record=p('pre_record').value, background=background)
 
     def transcribe(self, audio_data):
         """Transcribe con Whisper y publica en /listened_text; '' si no es voz (ver stt_filter)."""
@@ -157,28 +106,13 @@ class STTService(Node):
         return text
 
     def listen(self, max_wait, should_stop, on_status):
-        """Trabajo de la acción /stt_action (el cerrojo lo toma ListenActionServer)."""
-        deadline = time.time() + (max_wait if max_wait > 0 else MAX_WAIT_SECONDS)
-        while True:
-            audio_data = self.record_audio_with_vad(
-                deadline - time.time(), should_stop, on_status)
-            if should_stop():
-                return False, False, '', 'canceled'
-            if len(audio_data) == 0:
-                return False, self.last_record_timed_out, '', "No se detectó audio o timeout."
+        """Work of the /stt_action action (ListenActionServer takes the lock)."""
+        return listen(
+            lambda: sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype='int16'),
+            self.new_detector, self.transcribe,
+            max_wait if max_wait > 0 else MAX_WAIT_SECONDS, should_stop, on_status,
+            self.get_logger())
 
-            on_status('transcribing')
-            try:
-                text = self.transcribe(audio_data)
-            except Exception as e:
-                self.get_logger().error(f'❌ Error inferencia: {e}')
-                return False, False, '', str(e)
-            if text:
-                return True, False, text, text
-            # Lo que oyó Whisper no era voz (ver stt_filter): seguir escuchando el resto de
-            # max_wait, para que el ruido no termine la espera a la persona
-            if time.time() >= deadline:
-                return False, True, '', 'Nadie habló: lo que se oyó no era voz'
 
 def main():
     rclpy.init()

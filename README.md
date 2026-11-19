@@ -216,7 +216,7 @@ where its model runs.
 
 | Argument | Default | Description |
 | --- | --- | --- |
-| `background_noise` | `medium` | Noise of the room while listening (`stt` `whisper` and `openai`): `low`, `medium` or `high` (4, 6 or 8 dB that a voice needs above the background; the values are in `BACKGROUND_NOISE`, in the launch file), or a number of dB. Higher: less noise taken for voice, but the person must speak louder or closer (see [STT does not hear anything](#stt-does-not-hear-anything-no-se-detectó-audio-o-timeout)) |
+| `background_noise` | `medium` | Noise of the room while listening (every `stt` engine): `low`, `medium` or `high` (4, 6 or 8 dB that a voice needs above the background; the values are in `BACKGROUND_NOISE`, in the launch file), or a number of dB. Higher: less noise taken for voice, but the person must speak louder or closer (see [STT does not hear anything](#stt-does-not-hear-anything-no-se-detectó-audio-o-timeout)) |
 | `tts_speaks` | `true` | `true`: TTS plays the audio on this computer. `false`: it sends the file to `/trigger_audio_send` |
 | `audio_player` | `auto` | Command used to play audio (`aplay -q`, `pw-play`, `paplay`). `auto` = the first one installed |
 | `run_interaction_services` | `true` | `true`: STT, TTS, Extract and Yes/No. `false`: only the audio forwarding nodes (see [Audio forwarding](#audio-forwarding)) |
@@ -447,6 +447,7 @@ transcribes it in 0.36-0.41 s on the GPU and 1.1-1.3 s on the CPU (Whisper `smal
 | `stt_faster_whisper` | `device` | `cpu` | `cpu`, `cuda` or `auto` (the GPU if there is one). The launch file passes `stt_device` |
 | | `compute_type` | `auto` | `int8_float32` on the GPU, `int8` on the CPU |
 | | `vad_threshold` | `0.5` | Silero speech probability that counts as voice |
+| | `noise_margin` | `6.0` | dB above the background that a voice needs (launch argument `background_noise`) |
 | | `grace_period` | `0.8` | Seconds of silence that end the phrase |
 | | `max_phrase_secs` | `60.0` | Longest phrase recorded (s), a safety net against noise; `0` = no limit |
 | | `pre_record` | `0.5` | Seconds kept before the voice, so that the first syllable is not cut |
@@ -782,16 +783,20 @@ never use the microphone or the speakers at once).
   published on `/listened_text` (`std_msgs/msg/String`). It records until 1 s of silence
   (1.5 s with the cloud backend, 0.8 s with faster-whisper), in the language of the
   launch (`language`).
-- **Noisy rooms:** webrtcvad (the voice detector of `stt_whisper` and `stt_openai`) takes
-  room noise for voice: in a classroom with people talking in groups it marks every frame as
-  voice, and the phrase never ended. Now (`simple_hri/vad_phrase.py`) a frame is voice only
-  if it is also louder than the background, measured while waiting for the person:
+- **Noisy rooms:** a voice detector alone (webrtcvad in `stt_whisper` and `stt_openai`,
+  Silero in `stt_faster_whisper`) takes room noise for voice: in a classroom with people
+  talking in groups webrtcvad marked every frame as voice, and the phrase never ended. Now
+  (`simple_hri/vad_phrase.py`, the three nodes) a frame is voice only if it is also louder
+  than the background (the level above 100 Hz, so that the rumble of an engine, a fan or a
+  vibrating table does not count), measured while waiting for the person:
   `noise_margin` dB to start the phrase (launch argument `background_noise`: `low` 4,
   `medium` 6, `high` 8), half of it to go on. The phrase starts when most of 0.3 s is voice
   and ends after about 1 s with almost no voice (a click does not keep it open; a shorter
   pause to think does not end it). While the person keeps speaking it keeps listening, even
   a long answer; `max_phrase_secs` (60 s, `0` = no limit) is only a safety net if noise
   keeps the phrase open. The person must speak closer to the microphone than the noise.
+  The microphone stays open while Whisper transcribes: if what it heard was not speech (see
+  below), what the person said meanwhile is not lost.
 - **Noise is not speech:** with noise or silence, Whisper often invents a sentence
   ("¡Suscríbete!", "Subtítulos por la comunidad de Amara.org"). Those transcriptions are
   discarded (`simple_hri/stt_filter.py`): the segments that Whisper itself rates as probably
@@ -1011,10 +1016,13 @@ Look at the log of the launch:
 - `Timeout: nobody spoke (background -26 dBFS)`: nobody spoke within 10 s, or the microphone
   is muted or not the selected one (desktop sound settings), or the voice was not
   louder enough than the background. Speak closer to the microphone, or launch with
-  `background_noise:=low` (more noise is then taken for voice). `low` suits a steady noise
-  (fans, a car); with people talking around (a class working in groups: -26 to -24 dBFS
-  with a laptop microphone), if noise is taken for voice (`Voice detected` with nobody
-  speaking), use `background_noise:=high` and speak close to the microphone.
+  `background_noise:=low` (more noise is then taken for voice). If noise is taken for
+  voice (`Voice detected` with nobody speaking, `Discarded, not speech`), use
+  `background_noise:=high` and speak close to the microphone. Measured with a laptop
+  microphone: a class working in groups (-26 to -24 dBFS) and a car (-18 dBFS) worked with
+  `medium`; in the car `low` took noise for voice. If the log shows a background close to
+  0 dBFS, the microphone saturates (e.g. a laptop on a vibrating surface): lower its input
+  volume in the sound settings.
 - `Microphone error ... Invalid sample rate`: the microphone cannot be opened at 16 kHz. It
   happens in conda/pixi environments, whose own ALSA library does not see PipeWire or
   PulseAudio and opens the raw sound card. Point it to the system configuration and plugins:

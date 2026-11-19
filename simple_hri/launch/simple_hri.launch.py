@@ -126,7 +126,7 @@ ARGUMENTS = [
 
     # Audio and servers
     ('background_noise', 'medium',
-     'Noise of the room while listening (stt whisper and openai): low, medium or high, or the '
+     'Noise of the room while listening (every stt engine): low, medium or high, or the '
      'dB above the background that a voice needs (see BACKGROUND_NOISE). Higher: less noise '
      'taken for voice, but the person must speak louder or closer to the microphone'),
     ('tts_speaks', 'true',
@@ -242,7 +242,7 @@ def stt_node(engine, arg, on_gpu):
     """Node that listens (/stt_action) with the chosen engine."""
     language = arg['language']
     device = 'auto' if on_gpu else 'cpu'  # 'auto' in the STT nodes: the GPU if there is one
-    noise_margin = voice_margin(arg['background_noise'])  # faster_whisper uses Silero VAD
+    noise_margin = voice_margin(arg['background_noise'])
     if engine == 'whisper':
         return NodeToLaunch(
             executable='stt_whisper',
@@ -253,7 +253,8 @@ def stt_node(engine, arg, on_gpu):
     if engine == 'faster_whisper':
         return NodeToLaunch(
             executable='stt_faster_whisper',
-            params={'model': arg['whisper_model'], 'language': language, 'device': device},
+            params={'model': arg['whisper_model'], 'language': language, 'device': device,
+                    'noise_margin': noise_margin},
             model=f'faster-whisper {arg["whisper_model"]}',
             device=where(on_gpu))
     # openai

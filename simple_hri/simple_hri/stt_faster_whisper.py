@@ -22,10 +22,11 @@ STT with faster-whisper and Silero VAD: the same interface as stt_whisper.
   /listened_text (std_msgs/String)               every transcription
 
 It listens only while a goal is active. Silero VAD (a neural voice detector, more robust
-to noise than webrtcvad) finds the speech: the recording starts at the first voice (with
-pre_record seconds before it, so that the first syllable is kept) and ends after grace_period
-seconds of silence, or after max_phrase_secs. faster-whisper (CTranslate2) transcribes it:
-the same Whisper models, several times faster than openai-whisper.
+to noise than webrtcvad) finds the speech, with the rules of vad_phrase: a frame is voice
+only if it is also noise_margin dB louder than the background; the recording starts at the
+first voice (with pre_record seconds before it, so that the first syllable is kept) and ends
+after grace_period seconds of silence, or after max_phrase_secs. faster-whisper (CTranslate2)
+transcribes it: the same Whisper models, several times faster than openai-whisper.
 
 The engines come from the speech_io package of DialoStack (speech_to_text_node).
 
@@ -33,7 +34,6 @@ Parameter audio_file (tests only): a WAV file read instead of the microphone, at
 pace, from the start for every request.
 """
 
-import collections
 import os
 import threading
 import time
@@ -48,6 +48,7 @@ from rclpy.node import Node
 from std_msgs.msg import String
 
 from simple_hri.stt_filter import is_hallucination, keep_segment
+from simple_hri.vad_phrase import PhraseDetector, listen
 from simple_hri.voice_actions import ListenActionServer, spin_multithreaded
 
 SAMPLE_RATE = 16000
@@ -115,6 +116,7 @@ class STTFasterWhisper(Node):
         self.declare_parameter('cpu_threads', 4)
         self.declare_parameter('input_device', '')  # sounddevice input; '' = default
         self.declare_parameter('vad_threshold', 0.5)  # Silero speech probability
+        self.declare_parameter('noise_margin', 6.0)  # dB above the background that is voice
         self.declare_parameter('grace_period', 0.8)  # s of silence that end the phrase
         self.declare_parameter('max_phrase_secs', 60.0)  # s, longest phrase; 0 = no limit
         self.declare_parameter('pre_record', 0.5)  # s of audio kept before the voice
@@ -125,6 +127,7 @@ class STTFasterWhisper(Node):
         p = self.get_parameter
         self.language = p('language').value
         self.vad_threshold = p('vad_threshold').value
+        self.noise_margin = p('noise_margin').value
         self.grace_period = p('grace_period').value
         self.max_phrase_secs = p('max_phrase_secs').value
         self.pre_record = p('pre_record').value
@@ -143,7 +146,6 @@ class STTFasterWhisper(Node):
 
         # /stt_action. The lock keeps two goals from using the microphone at once.
         self.mic_lock = threading.Lock()
-        self.last_record_timed_out = False
         self.listen_action = ListenActionServer(self, self.listen, self.mic_lock)
 
         source = f'file {self.audio_file}' if self.audio_file else 'microphone'
@@ -185,66 +187,17 @@ class STTFasterWhisper(Node):
             samplerate=SAMPLE_RATE, channels=1, dtype='float32',
             device=self.input_device, blocksize=CHUNK)
 
-    def record_audio_with_vad(self, max_wait=MAX_WAIT_SECONDS, should_stop=None, on_status=None):
-        """
-        Record one phrase: wait for voice (at most max_wait s), then record until
-        grace_period s of silence or max_phrase_secs. Returns float32 audio, empty on timeout
-        or cancellation. should_stop() is checked on every chunk and on_status() reports the
-        stage ("listening", "speech_detected"); both are optional.
-        """
-        pre_buffer = collections.deque(maxlen=max(1, int(self.pre_record * SAMPLE_RATE / CHUNK)))
-        max_silence = int(self.grace_period * SAMPLE_RATE / CHUNK)
-        max_chunks = int(self.max_phrase_secs * SAMPLE_RATE / CHUNK)  # 0 = no limit
-        phrase = []
-        silence = 0
-        start_wait = time.time()
-        self.last_record_timed_out = False
+    def is_speech(self, chunk):
+        """Return whether Silero takes the chunk (CHUNK float32 samples) for voice."""
+        return self.vad_model(torch.from_numpy(chunk), SAMPLE_RATE).item() > self.vad_threshold
+
+    def new_detector(self, background):
+        """Return a PhraseDetector with Silero and the parameters of the node (vad_phrase)."""
         self.vad_model.reset_states()
-
-        self.get_logger().info('Listening... (speak now)')
-        if on_status:
-            on_status('listening')
-        try:
-            with self.open_stream() as stream:
-                while True:
-                    if should_stop and should_stop():
-                        self.get_logger().info('Recording canceled.')
-                        return np.array([], dtype=np.float32)
-                    chunk, overflow = stream.read(CHUNK)
-                    if overflow:
-                        self.get_logger().warning('Audio overflow')
-                    chunk = chunk.flatten().astype(np.float32)
-                    speech_prob = self.vad_model(torch.from_numpy(chunk), SAMPLE_RATE).item()
-                    is_voice = speech_prob > self.vad_threshold
-
-                    if not phrase:
-                        # Waiting for voice
-                        pre_buffer.append(chunk)
-                        if is_voice:
-                            self.get_logger().info('Voice detected, recording...')
-                            if on_status:
-                                on_status('speech_detected')
-                            phrase.extend(pre_buffer)
-                        elif time.time() - start_wait > max_wait:
-                            self.get_logger().info('Timeout: nobody spoke.')
-                            self.last_record_timed_out = True
-                            return np.array([], dtype=np.float32)
-                        continue
-
-                    # Recording
-                    phrase.append(chunk)
-                    silence = 0 if is_voice else silence + 1
-                    if silence > max_silence:
-                        self.get_logger().info('End of the phrase.')
-                        break
-                    if max_chunks and len(phrase) > max_chunks:
-                        self.get_logger().info('Longest phrase reached.')
-                        break
-        except Exception as e:
-            self.get_logger().error(f'Microphone error: {e}')
-            return np.array([], dtype=np.float32)
-
-        return np.concatenate(phrase)
+        return PhraseDetector(
+            self.is_speech, frame_samples=CHUNK, noise_margin=self.noise_margin,
+            grace_period=self.grace_period, max_phrase_secs=self.max_phrase_secs,
+            pre_record=self.pre_record, background=background)
 
     def transcribe(self, audio):
         """Transcribe with faster-whisper and publish on /listened_text; '' if it is not speech."""
@@ -274,25 +227,10 @@ class STTFasterWhisper(Node):
 
     def listen(self, max_wait, should_stop, on_status):
         """Work of the /stt_action action (ListenActionServer takes the lock)."""
-        deadline = time.time() + (max_wait if max_wait > 0 else MAX_WAIT_SECONDS)
-        while True:
-            audio = self.record_audio_with_vad(deadline - time.time(), should_stop, on_status)
-            if should_stop():
-                return False, False, '', 'canceled'
-            if len(audio) == 0:
-                return False, self.last_record_timed_out, '', 'No audio detected or timeout.'
-            on_status('transcribing')
-            try:
-                text = self.transcribe(audio)
-            except Exception as e:
-                self.get_logger().error(f'Inference error: {e}')
-                return False, False, '', str(e)
-            if text:
-                return True, False, text, text
-            # What Whisper heard was not speech (see stt_filter): keep listening for the
-            # rest of max_wait, so that noise does not end the wait for the person
-            if time.time() >= deadline:
-                return False, True, '', 'Nobody spoke: what was heard was not speech'
+        return listen(
+            self.open_stream, self.new_detector, self.transcribe,
+            max_wait if max_wait > 0 else MAX_WAIT_SECONDS, should_stop, on_status,
+            self.get_logger())
 
 
 def main():
