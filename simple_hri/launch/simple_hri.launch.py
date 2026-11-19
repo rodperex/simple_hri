@@ -22,6 +22,7 @@ HOW TO USE IT
   ros2 launch simple_hri simple_hri.launch.py backend:=ollama    # LLM in Ollama (ollama serve)
   ros2 launch simple_hri simple_hri.launch.py backend:=ollama stt:=faster_whisper
   ros2 launch simple_hri simple_hri.launch.py llm_device:=cpu    # computer without a GPU
+  ros2 launch simple_hri simple_hri.launch.py background_noise:=high   # people talking around
   ros2 launch simple_hri simple_hri.launch.py --show-args        # every argument
 
 When it starts, it prints which node, model and device each capability uses. More cases
@@ -58,7 +59,8 @@ HOW THIS FILE IS ORGANISED
 
   1. ARGUMENTS: every launch argument, its default and what it does
   2. BACKENDS and ENGINES: the tables above
-     Helpers: small functions used by parts 3 and 4 (where, is_true, auto, check, node)
+     Helpers: small functions used by parts 3 and 4 (where, is_true, auto, check,
+     voice_margin, node)
   3. stt_node(), tts_node() and llm_nodes(): which node each engine launches, and with
      which parameters
   4. generate_launch_description() and launch_nodes(): the main functions. They declare
@@ -123,10 +125,10 @@ ARGUMENTS = [
      'On the CPU it takes several seconds per request'),
 
     # Audio and servers
-    ('noise_margin', '6.0',
-     'dB above the background noise that a voice needs to be heard (stt whisper and openai). '
-     'Higher: less noise taken for voice, but the person must speak louder or closer. '
-     'The log of the STT node shows the background level'),
+    ('background_noise', 'medium',
+     'Noise of the room while listening (stt whisper and openai): low, medium or high, or the '
+     'dB above the background that a voice needs (see BACKGROUND_NOISE). Higher: less noise '
+     'taken for voice, but the person must speak louder or closer to the microphone'),
     ('tts_speaks', 'true',
      'true: the robot speaks through the speakers of this computer. false: the audio is '
      'sent to another computer, which plays it (launched there with '
@@ -168,6 +170,13 @@ LANGUAGES = {'es': 'spa', 'en': 'eng'}
 
 DEVICES = ('cpu', 'gpu')
 
+# background_noise: dB above the background noise that a voice needs to be heard. The STT
+# measures the background by itself; the noisier and more changing the room (people
+# talking), the more the voice must stand out. In class, with groups talking and a laptop
+# microphone, medium heard every phrase spoken at a normal level; high never took the
+# chatter for voice, but needed speaking louder or closer
+BACKGROUND_NOISE = {'low': 4.0, 'medium': 6.0, 'high': 8.0}
+
 # The functions of part 3 return, for each capability, the node to launch:
 #   executable  program of the simple_hri package, e.g. 'stt_whisper'
 #   params      its ROS parameters, e.g. {'model': 'small', 'language': 'es'}
@@ -201,6 +210,18 @@ def check(name, value, options):
         raise RuntimeError(f"Unknown {name} '{value}'. Options: {', '.join(options)}")
 
 
+def voice_margin(background_noise):
+    """Return the dB a voice needs above the background: a BACKGROUND_NOISE level or a number."""
+    if background_noise in BACKGROUND_NOISE:
+        return BACKGROUND_NOISE[background_noise]
+    try:
+        return float(background_noise)
+    except ValueError:
+        raise RuntimeError(
+            f"Unknown background_noise '{background_noise}'. Options: "
+            f"{', '.join(BACKGROUND_NOISE)} or a number of dB") from None
+
+
 def node(executable, name, params):
     """ROS node of the simple_hri package, with its output on the screen."""
     return Node(package='simple_hri', executable=executable, name=name, output='screen',
@@ -221,7 +242,7 @@ def stt_node(engine, arg, on_gpu):
     """Node that listens (/stt_action) with the chosen engine."""
     language = arg['language']
     device = 'auto' if on_gpu else 'cpu'  # 'auto' in the STT nodes: the GPU if there is one
-    noise_margin = float(arg['noise_margin'])  # dB; faster_whisper uses Silero VAD instead
+    noise_margin = voice_margin(arg['background_noise'])  # faster_whisper uses Silero VAD
     if engine == 'whisper':
         return NodeToLaunch(
             executable='stt_whisper',
@@ -344,6 +365,7 @@ def launch_nodes(context):
 
     check('backend', arg['backend'], BACKENDS)
     check('language', arg['language'], LANGUAGES)
+    voice_margin(arg['background_noise'])  # stops the launch if the value is unknown
 
     # Engine of each capability: its own argument, or the one of "backend"
     chosen = {}
