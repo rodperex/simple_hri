@@ -448,7 +448,7 @@ transcribes it in 0.36-0.41 s on the GPU and 1.1-1.3 s on the CPU (Whisper `smal
 | | `compute_type` | `auto` | `int8_float32` on the GPU, `int8` on the CPU |
 | | `vad_threshold` | `0.5` | Silero speech probability that counts as voice |
 | | `grace_period` | `0.8` | Seconds of silence that end the phrase |
-| | `max_phrase_secs` | `15.0` | Longest phrase recorded (s) |
+| | `max_phrase_secs` | `60.0` | Longest phrase recorded (s), a safety net against noise; `0` = no limit |
 | | `pre_record` | `0.5` | Seconds kept before the voice, so that the first syllable is not cut |
 | | `input_device` | `''` | Microphone (`sounddevice`); empty = the default one |
 | | `audio_file` | `''` | Tests only: a WAV file read instead of the microphone, at real-time pace |
@@ -780,15 +780,18 @@ never use the microphone or the speakers at once).
 - **Feedback:** `status`: `listening`, `speech_detected`, `transcribing`.
 - **Result:** `success`, `timed_out` (nobody spoke), `text`, `message`. The text is also
   published on `/listened_text` (`std_msgs/msg/String`). It records until 1 s of silence
-  (1.5 s with the cloud backend, 0.8 s with faster-whisper) or 15 s, in the language of the
+  (1.5 s with the cloud backend, 0.8 s with faster-whisper), in the language of the
   launch (`language`).
 - **Noisy rooms:** webrtcvad (the voice detector of `stt_whisper` and `stt_openai`) takes
   room noise for voice: in a classroom with people talking in groups it marks every frame as
   voice, and the phrase never ended. Now (`simple_hri/vad_phrase.py`) a frame is voice only
-  if it is also `noise_margin` dB louder than the background, measured while waiting for the
-  person (launch argument `background_noise`: `low` 4, `medium` 6, `high` 8); the phrase starts when most of 0.3 s is voice and ends when little
-  of the last second is (a click or somebody else's word does not keep it open), and it
-  never lasts more than 15 s. The person must speak closer to the microphone than the noise.
+  if it is also louder than the background, measured while waiting for the person:
+  `noise_margin` dB to start the phrase (launch argument `background_noise`: `low` 4,
+  `medium` 6, `high` 8), half of it to go on. The phrase starts when most of 0.3 s is voice
+  and ends after about 1 s with almost no voice (a click does not keep it open; a shorter
+  pause to think does not end it). While the person keeps speaking it keeps listening, even
+  a long answer; `max_phrase_secs` (60 s, `0` = no limit) is only a safety net if noise
+  keeps the phrase open. The person must speak closer to the microphone than the noise.
 - **Noise is not speech:** with noise or silence, Whisper often invents a sentence
   ("¡Suscríbete!", "Subtítulos por la comunidad de Amara.org"). Those transcriptions are
   discarded (`simple_hri/stt_filter.py`): the segments that Whisper itself rates as probably
@@ -890,9 +893,9 @@ and configures them; to run one by hand, see the end of the table.
 
 | Node | Capability | Engine | Needs | Parameters |
 | --- | --- | --- | --- | --- |
-| `stt_whisper` | STT | Whisper, local | - | `model` (`small`), `language` (`es`), `device` (`cpu`, `cuda` or `auto`), `hallucination_filter` (`true`), `noise_margin` (`6.0`), `grace_period` (`1.0`), `max_phrase_secs` (`15.0`), `vad_mode` (`2`) |
+| `stt_whisper` | STT | Whisper, local | - | `model` (`small`), `language` (`es`), `device` (`cpu`, `cuda` or `auto`), `hallucination_filter` (`true`), `noise_margin` (`6.0`), `grace_period` (`1.0`), `max_phrase_secs` (`60.0`), `vad_mode` (`2`) |
 | `stt_faster_whisper` | STT | faster-whisper with Silero VAD, local | - | `model` (`small`), `language` (`es`), `device` (`cpu`, `cuda` or `auto`), `compute_type` (see [faster-whisper and Piper](#faster-whisper-and-piper)), `hallucination_filter` (`true`) |
-| `stt_openai` | STT | OpenAI `whisper-1` | `OPENAI_API_KEY` + credits | `language` (`es`), `hallucination_filter` (`true`; only the known phrases, the API gives no no-speech probability), `noise_margin` (`6.0`), `grace_period` (`1.5`), `max_phrase_secs` (`15.0`), `vad_mode` (`2`) |
+| `stt_openai` | STT | OpenAI `whisper-1` | `OPENAI_API_KEY` + credits | `language` (`es`), `hallucination_filter` (`true`; only the known phrases, the API gives no no-speech probability), `noise_margin` (`6.0`), `grace_period` (`1.5`), `max_phrase_secs` (`60.0`), `vad_mode` (`2`) |
 | `tts_mms` | TTS | `facebook/mms-tts-<lang_code>`, local | - | `lang_code`, `volume`, `use_gpu`, `play_sound`, `audio_player` |
 | `tts_piper` | TTS | Piper voice, local (CPU) | - | `lang_code` (`es`/`en`), `voice`, `speaker`, `models_dir`, `volume`, `length_scale`, `noise_scale`, `noise_w_scale`, `play_sound`, `audio_player` |
 | `tts_google` | TTS | Google Cloud TTS | `GOOGLE_APPLICATION_CREDENTIALS` + billing | `language` (`en`), `voice` (from `language`), `play_sound`, `audio_player` |
@@ -1007,10 +1010,11 @@ Look at the log of the launch:
 
 - `Timeout: nobody spoke (background -26 dBFS)`: nobody spoke within 10 s, or the microphone
   is muted or not the selected one (desktop sound settings), or the voice was not
-  louder enough than the background. With background noise (a class working in groups is
-  about -26 dBFS with a laptop microphone), speak closer to the microphone, or launch with
-  `background_noise:=low` (more noise is then taken for voice). If noise is taken for voice
-  (`Voice detected` with nobody speaking, phrases of 15 s), use `background_noise:=high`.
+  louder enough than the background. Speak closer to the microphone, or launch with
+  `background_noise:=low` (more noise is then taken for voice). `low` suits a steady noise
+  (fans, a car); with people talking around (a class working in groups: -26 to -24 dBFS
+  with a laptop microphone), if noise is taken for voice (`Voice detected` with nobody
+  speaking), use `background_noise:=high` and speak close to the microphone.
 - `Microphone error ... Invalid sample rate`: the microphone cannot be opened at 16 kHz. It
   happens in conda/pixi environments, whose own ALSA library does not see PipeWire or
   PulseAudio and opens the raw sound card. Point it to the system configuration and plugins:

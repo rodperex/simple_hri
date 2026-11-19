@@ -116,7 +116,7 @@ class STTFasterWhisper(Node):
         self.declare_parameter('input_device', '')  # sounddevice input; '' = default
         self.declare_parameter('vad_threshold', 0.5)  # Silero speech probability
         self.declare_parameter('grace_period', 0.8)  # s of silence that end the phrase
-        self.declare_parameter('max_phrase_secs', 15.0)  # s, longest phrase recorded
+        self.declare_parameter('max_phrase_secs', 60.0)  # s, longest phrase; 0 = no limit
         self.declare_parameter('pre_record', 0.5)  # s of audio kept before the voice
         self.declare_parameter('audio_file', '')  # tests only: a WAV instead of the microphone
         # Discard what Whisper invents from noise (see stt_filter); false only to debug
@@ -194,7 +194,7 @@ class STTFasterWhisper(Node):
         """
         pre_buffer = collections.deque(maxlen=max(1, int(self.pre_record * SAMPLE_RATE / CHUNK)))
         max_silence = int(self.grace_period * SAMPLE_RATE / CHUNK)
-        max_chunks = int(self.max_phrase_secs * SAMPLE_RATE / CHUNK)
+        max_chunks = int(self.max_phrase_secs * SAMPLE_RATE / CHUNK)  # 0 = no limit
         phrase = []
         silence = 0
         start_wait = time.time()
@@ -237,7 +237,7 @@ class STTFasterWhisper(Node):
                     if silence > max_silence:
                         self.get_logger().info('End of the phrase.')
                         break
-                    if len(phrase) > max_chunks:
+                    if max_chunks and len(phrase) > max_chunks:
                         self.get_logger().info('Longest phrase reached.')
                         break
         except Exception as e:

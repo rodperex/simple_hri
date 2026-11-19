@@ -46,7 +46,7 @@ class STTService(Node):
         self.declare_parameter('vad_mode', 2)  # webrtcvad: 0 (takes noise for voice) to 3
         self.declare_parameter('noise_margin', 6.0)  # dB above the background that is voice
         self.declare_parameter('grace_period', 1.5)  # s of silence that end the phrase
-        self.declare_parameter('max_phrase_secs', 15.0)  # s, longest phrase recorded
+        self.declare_parameter('max_phrase_secs', 60.0)  # s, longest phrase; 0 = no limit
         self.declare_parameter('pre_record', 0.5)  # s of audio kept before the voice
 
         self.api_key = os.getenv("OPENAI_API_KEY")

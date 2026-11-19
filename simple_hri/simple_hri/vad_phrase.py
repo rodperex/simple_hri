@@ -17,15 +17,21 @@ Find one phrase in the microphone audio with webrtcvad (stt_whisper and stt_open
 
 webrtcvad alone takes room noise for voice: with a fan, a keyboard or people talking
 far away it marks most 30 ms frames as voice, the phrase never gets 1 s of silence and the
-recording never ends. Three rules make it robust:
+recording never ends. These rules make it robust:
 
-  - A frame is voice only if webrtcvad says so AND it is noise_margin dB louder than the
-    background, measured (median level of the last 3 s) while waiting for the person.
-    The person speaks close to the microphone; the noise is the same before and after.
+  - A frame is voice only if webrtcvad says so AND it is louder than the background:
+    noise_margin dB to start the phrase, half of it to go on (the voice of a person who
+    keeps speaking varies, and must not be cut). The person speaks close to the
+    microphone, louder than the room.
+  - The background is the median level of the last 3 s while waiting for the person. It
+    is not measured while recording: in a long answer with short pauses, the pauses still
+    hold the tail of the voice, the background would rise and the person would be cut.
   - The phrase starts when most frames of the last 0.3 s are voice (one frame is not
-    enough), and ends when few frames of the last grace_period seconds are voice
-    (a click or a word of somebody else does not keep it open).
-  - It never lasts more than max_phrase_secs.
+    enough), and ends when almost none of the last grace_period seconds is voice (a click
+    does not keep it open, and a pause to think shorter than grace_period does not end
+    it).
+  - It never lasts more than max_phrase_secs (60 s by default; 0 = no limit): a safety
+    net if noise keeps the phrase open. A person who keeps speaking is never cut before.
 
 Use: create one PhraseDetector per recording and give it every frame with add(); it says
 when the phrase starts and ends, and phrase() returns the audio (with pre_record seconds
@@ -45,14 +51,17 @@ BACKGROUND_SECS = 3.0  # window that measures the background level while waiting
 WARMUP_SECS = 0.5  # background measured before a phrase can start
 START_SECS = 0.3  # window that starts the phrase...
 START_RATIO = 0.7  # ...when this fraction of its frames are voice
-END_RATIO = 0.2  # the phrase ends when at most this fraction of the last grace_period is voice
+# The phrase ends when at most this fraction of the last grace_period is voice. 0.2 ended long
+# answers at pauses of 0.7 s; lower than 0.1, people talking around kept it open for minutes
+END_RATIO = 0.1
+KEEP_MARGIN = 0.5  # fraction of noise_margin that keeps a phrase going once it has started
 
 # Events returned by PhraseDetector.add()
 WAITING = 'waiting'  # nobody speaks yet
 STARTED = 'started'  # the phrase has just started
 RECORDING = 'recording'  # inside the phrase
 ENDED = 'ended'  # end of the phrase (silence)
-TOO_LONG = 'too_long'  # end of the phrase (max_phrase_secs)
+TOO_LONG = 'too_long'  # end of the phrase (max_phrase_secs, if it is not 0)
 
 
 def frames(seconds):
@@ -70,10 +79,10 @@ class PhraseDetector:
     """Decides, frame by frame, where one phrase starts and ends."""
 
     def __init__(self, vad_mode=2, noise_margin=6.0, grace_period=1.0,
-                 max_phrase_secs=15.0, pre_record=0.5):
+                 max_phrase_secs=60.0, pre_record=0.5):
         self.vad = webrtcvad.Vad(vad_mode)
         self.noise_margin = noise_margin
-        self.max_frames = frames(max_phrase_secs)
+        self.max_frames = frames(max_phrase_secs) if max_phrase_secs > 0 else None
         self.background = collections.deque(maxlen=frames(BACKGROUND_SECS))
         self.start_window = collections.deque(maxlen=frames(START_SECS))
         self.end_window = collections.deque(maxlen=frames(grace_period))
@@ -85,10 +94,10 @@ class PhraseDetector:
         """Return whether the frame is voice: webrtcvad and louder than the background."""
         level = level_db(frame)
         if not self.recorded:
-            # Only while waiting: the background must not include the phrase
             self.background.append(level)
             self.background_db = float(np.median(self.background))
-        loud = level > self.background_db + self.noise_margin
+        margin = self.noise_margin * (KEEP_MARGIN if self.recorded else 1.0)
+        loud = level > self.background_db + margin
         return loud and self.vad.is_speech(frame.tobytes(), SAMPLE_RATE)
 
     def add(self, frame):
@@ -111,7 +120,7 @@ class PhraseDetector:
         self.end_window.append(voice)
         if sum(self.end_window) <= END_RATIO * len(self.end_window):
             return ENDED
-        if len(self.recorded) >= self.max_frames:
+        if self.max_frames and len(self.recorded) >= self.max_frames:
             return TOO_LONG
         return RECORDING
 
